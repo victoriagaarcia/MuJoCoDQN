@@ -12,8 +12,9 @@ from src.envs import DiscreteActionWrapper, PixelStackWrapper
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_PATH = "runs/TU_MODELO_DIR/dqn_walker2d.pt"  # ← ajusta esto
-VIDEO_DIR = "runs/TU_MODELO_DIR/"  # ← ajusta esto
+MODEL_DATE = "Feb10_13_41_43"
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
+VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
 N_EPISODES = 3
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
