@@ -58,33 +58,62 @@ class PixelStackWrapper(gym.Wrapper):
 # =========================================================
 # Discretización de acciones para Walker2D
 # =========================================================
+# def make_discrete_action_set(action_dim: int):
+#     """
+#     Conjunto reducido y justificable de acciones prototipo.
+#     Mantener este set fijo para DQN y Rainbow.
+#     """
+#     Z = np.zeros(action_dim, dtype=np.float32) # acción de "idle" (ninguna acción)
+#     P = np.ones(action_dim, dtype=np.float32) # acción de "forward" (empujar hacia adelante)
+#     N = -np.ones(action_dim, dtype=np.float32) # acción de "backward" (empujar hacia atrás)
+
+#     half = action_dim // 2
+
+#     P1 = Z.copy(); P1[:half] = 1.0 # empuje mitad 1 (empujar hacia adelante solo la mitad de las articulaciones)
+#     P2 = Z.copy(); P2[half:] = 1.0 # empuje mitad 2 (empujar hacia adelante solo la otra mitad de las articulaciones)
+#     N1 = Z.copy(); N1[:half] = -1.0 # freno mitad 1 (frenar hacia atrás solo la mitad de las articulaciones)
+#     N2 = Z.copy(); N2[half:] = -1.0 # freno mitad 2 (frenar hacia atrás solo la otra mitad de las articulaciones)
+
+#     actions = [
+#         Z,          # 0: idle (ninguna acción)
+#         0.5 * P,    # 1: forward suave
+#         1.0 * P,    # 2: forward fuerte
+#         0.5 * N,    # 3: backward suave
+#         1.0 * N,    # 4: backward fuerte
+#         P1,         # 5: empuje mitad 1
+#         P2,         # 6: empuje mitad 2
+#         N1,         # 7: freno mitad 1
+#         N2,         # 8: freno mitad 2
+#     ]
+
+#     return np.stack(actions, axis=0)
+
 def make_discrete_action_set(action_dim: int):
     """
-    Conjunto reducido y justificable de acciones prototipo.
-    Mantener este set fijo para DQN y Rainbow.
+    Acciones discretas suaves y "controlables".
+    Incluye:
+    - idle
+    - empujes globales suaves
+    - ajustes individuales por articulación (+/-)
     """
-    Z = np.zeros(action_dim, dtype=np.float32) # acción de "idle" (ninguna acción)
-    P = np.ones(action_dim, dtype=np.float32) # acción de "forward" (empujar hacia adelante)
-    N = -np.ones(action_dim, dtype=np.float32) # acción de "backward" (empujar hacia atrás)
+    Z = np.zeros(action_dim, dtype=np.float32)
 
-    half = action_dim // 2
+    # magnitudes suaves (evita 1.0 al inicio)
+    a1 = 0.2
+    a2 = 0.4
 
-    P1 = Z.copy(); P1[:half] = 1.0 # empuje mitad 1 (empujar hacia adelante solo la mitad de las articulaciones)
-    P2 = Z.copy(); P2[half:] = 1.0 # empuje mitad 2 (empujar hacia adelante solo la otra mitad de las articulaciones)
-    N1 = Z.copy(); N1[:half] = -1.0 # freno mitad 1 (frenar hacia atrás solo la mitad de las articulaciones)
-    N2 = Z.copy(); N2[half:] = -1.0 # freno mitad 2 (frenar hacia atrás solo la otra mitad de las articulaciones)
+    actions = [Z]
 
-    actions = [
-        Z,          # 0: idle (ninguna acción)
-        0.5 * P,    # 1: forward suave
-        1.0 * P,    # 2: forward fuerte
-        0.5 * N,    # 3: backward suave
-        1.0 * N,    # 4: backward fuerte
-        P1,         # 5: empuje mitad 1
-        P2,         # 6: empuje mitad 2
-        N1,         # 7: freno mitad 1
-        N2,         # 8: freno mitad 2
-    ]
+    # empujes globales suaves (a veces ayuda a avanzar, pero sin reventar)
+    actions.append(np.full(action_dim, +a1, dtype=np.float32))
+    actions.append(np.full(action_dim, -a1, dtype=np.float32))
+
+    # ajustes por articulación (muy importantes para balance)
+    for i in range(action_dim):
+        v = Z.copy(); v[i] = +a2
+        actions.append(v)
+        v = Z.copy(); v[i] = -a2
+        actions.append(v)
 
     return np.stack(actions, axis=0)
 
