@@ -34,3 +34,27 @@ class QNetwork(nn.Module):
     def forward(self, x):
         conv_out = self.conv(x).view(x.size()[0], -1)
         return self.fc(conv_out)
+    
+# -----------------------------
+# Replay Buffer
+# -----------------------------
+class ReplayBuffer:
+    def __init__(self, capacity: int):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size: int):
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = map(np.array, zip(*batch))
+        return (
+            torch.tensor(states, dtype=torch.float32),
+            torch.tensor(actions, dtype=torch.long),
+            torch.tensor(rewards, dtype=torch.float32),
+            torch.tensor(next_states, dtype=torch.float32),
+            torch.tensor(dones, dtype=torch.float32),
+        )
+
+    def __len__(self):
+        return len(self.buffer)
