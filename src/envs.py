@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import cv2
-from collections import deque
+from collections import deque 
 
 # =========================================================
 # Preprocesado de píxeles
@@ -11,8 +11,8 @@ def preprocess(frame, size=84):
     RGB uint8 (H,W,3) -> grayscale float32 (84,84) en [0,1]
     """
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-    frame = cv2.resize(frame, (size, size), interpolation=cv2.INTER_AREA)
-    frame = frame.astype(np.float32) / 255.0
+    frame = cv2.resize(frame, (size, size), interpolation=cv2.INTER_AREA) # Normaliza imagen a 84x84
+    frame = frame.astype(np.float32) / 255.0 # Normaliza a [0,1]
     return frame
 
 
@@ -36,12 +36,12 @@ class PixelStackWrapper(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        frame = self.env.render()
-        p = preprocess(frame, self.size)
+        frame = self.env.render() # Obtiene el frame RGB actual
+        p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
 
         self.frames.clear()
         for _ in range(self.k):
-            self.frames.append(p)
+            self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
 
         return np.stack(self.frames, axis=0), info
 
@@ -50,7 +50,7 @@ class PixelStackWrapper(gym.Wrapper):
         frame = self.env.render()
         p = preprocess(frame, self.size)
 
-        self.frames.append(p)
+        self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
 
         return np.stack(self.frames, axis=0), reward, terminated, truncated, info
 
@@ -63,19 +63,19 @@ def make_discrete_action_set(action_dim: int):
     Conjunto reducido y justificable de acciones prototipo.
     Mantener este set fijo para DQN y Rainbow.
     """
-    Z = np.zeros(action_dim, dtype=np.float32)
-    P = np.ones(action_dim, dtype=np.float32)
-    N = -np.ones(action_dim, dtype=np.float32)
+    Z = np.zeros(action_dim, dtype=np.float32) # acción de "idle" (ninguna acción)
+    P = np.ones(action_dim, dtype=np.float32) # acción de "forward" (empujar hacia adelante)
+    N = -np.ones(action_dim, dtype=np.float32) # acción de "backward" (empujar hacia atrás)
 
     half = action_dim // 2
 
-    P1 = Z.copy(); P1[:half] = 1.0
-    P2 = Z.copy(); P2[half:] = 1.0
-    N1 = Z.copy(); N1[:half] = -1.0
-    N2 = Z.copy(); N2[half:] = -1.0
+    P1 = Z.copy(); P1[:half] = 1.0 # empuje mitad 1 (empujar hacia adelante solo la mitad de las articulaciones)
+    P2 = Z.copy(); P2[half:] = 1.0 # empuje mitad 2 (empujar hacia adelante solo la otra mitad de las articulaciones)
+    N1 = Z.copy(); N1[:half] = -1.0 # freno mitad 1 (frenar hacia atrás solo la mitad de las articulaciones)
+    N2 = Z.copy(); N2[half:] = -1.0 # freno mitad 2 (frenar hacia atrás solo la otra mitad de las articulaciones)
 
     actions = [
-        Z,          # 0: idle
+        Z,          # 0: idle (ninguna acción)
         0.5 * P,    # 1: forward suave
         1.0 * P,    # 2: forward fuerte
         0.5 * N,    # 3: backward suave
@@ -95,10 +95,10 @@ class DiscreteActionWrapper(gym.ActionWrapper):
     """
     def __init__(self, env):
         super().__init__(env)
-        assert isinstance(env.action_space, gym.spaces.Box)
+        assert isinstance(env.action_space, gym.spaces.Box) # Comprobamos que el espacio de acciones original es continuo
 
-        self._actions = make_discrete_action_set(env.action_space.shape[0])
-        self.action_space = gym.spaces.Discrete(self._actions.shape[0])
+        self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
+        self.action_space = gym.spaces.Discrete(self._actions.shape[0]) # Redefinimos el espacio de acciones a discreto con el número de acciones prototipo
 
     def action(self, act_idx):
-        return self._actions[int(act_idx)]
+        return self._actions[int(act_idx)] # Convertimos el índice de acción discreta en la acción continua correspondiente
