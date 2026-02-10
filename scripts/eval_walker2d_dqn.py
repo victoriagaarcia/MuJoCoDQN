@@ -6,10 +6,10 @@ from src.envs import PixelStackWrapper, DiscreteActionWrapper
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 ENV_ID = "Walker2d-v5"
-MODEL_PATH = "runs/dqn_walker2d_final.pt"  # lo ajustamos luego
+MODEL_PATH = "runs/Feb10_13_41_43/dqn_walker2d.pt"  # lo ajustamos luego
 
 def main():
-    env = gym.make(ENV_ID, render_mode="human")
+    env = gym.make(ENV_ID, render_mode="rgb_array")
     env = DiscreteActionWrapper(env)
     env = PixelStackWrapper(env)
 
@@ -30,6 +30,8 @@ def main():
 
         if terminated or truncated:
             state, _ = env.reset()
+    
+        env.close()
 
 if __name__ == "__main__":
     main()
