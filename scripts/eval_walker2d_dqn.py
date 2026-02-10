@@ -1,37 +1,64 @@
 import gymnasium as gym
 import torch
-import time
-from src.dqn import QNetwork
-from src.envs import PixelStackWrapper, DiscreteActionWrapper
+import numpy as np
+import os
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+from src.dqn import QNetwork
+from src.envs import DiscreteActionWrapper, PixelStackWrapper
+
+# -----------------------------
+# Configuración
+# -----------------------------
 ENV_ID = "Walker2d-v5"
-MODEL_PATH = "runs/Feb10_13_41_43/dqn_walker2d.pt"  # lo ajustamos luego
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+MODEL_PATH = "runs/TU_MODELO_DIR/dqn_walker2d.pt"  # ← ajusta esto
+VIDEO_DIR = "runs/TU_MODELO_DIR/"  # ← ajusta esto
+N_EPISODES = 3
+
+os.makedirs(VIDEO_DIR, exist_ok=True)
+
 
 def main():
+    # 1) Crear entorno base
     env = gym.make(ENV_ID, render_mode="rgb_array")
     env = DiscreteActionWrapper(env)
     env = PixelStackWrapper(env)
 
+    # 2) Envolver con RecordVideo
+    env = gym.wrappers.RecordVideo(
+        env,
+        video_folder=VIDEO_DIR,
+        episode_trigger=lambda ep: True,  # graba TODOS los episodios
+        name_prefix="final_video"
+    )
+
+    # 3) Cargar modelo
     n_actions = env.action_space.n
-    model = QNetwork(n_actions).to(DEVICE)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
-    model.eval()
+    q_net = QNetwork(n_actions).to(DEVICE)
+    q_net.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    q_net.eval()
 
-    state, _ = env.reset()
+    # 4) Ejecutar episodios (política greedy)
+    for ep in range(N_EPISODES):
+        state, _ = env.reset()
+        done = False
+        ep_return = 0.0
 
-    while True:
-        with torch.no_grad():
-            s = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-            action = model(s).argmax(dim=1).item()
+        while not done:
+            with torch.no_grad():
+                s = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+                action = q_net(s).argmax(dim=1).item()
 
-        state, reward, terminated, truncated, _ = env.step(action)
-        time.sleep(0.03)  # para que no vaya demasiado rápido
+            state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            ep_return += reward
 
-        if terminated or truncated:
-            state, _ = env.reset()
-    
-        env.close()
+        print(f"Episode {ep} return: {ep_return:.2f}")
+
+    env.close()
+    print(f"Videos saved in: {VIDEO_DIR}")
+
 
 if __name__ == "__main__":
     main()
