@@ -13,21 +13,21 @@ from datetime import datetime
 # Hiperparámetros
 # -----------------------------
 ENV_ID = "Walker2d-v5"
-TOTAL_STEPS = 500_000 # Número total de pasos de interacción con el entorno (no episodios)
+TOTAL_STEPS = 1_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 100_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 32 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
 LR = 1e-4
 TARGET_UPDATE = 5_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
-START_TRAINING = 10_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
+START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_DECAY = 300_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
+EPS_DECAY = 600_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
-EXPERIMENT_XLSX = "runs/experiment_results.xlsx" # Archivo Excel para guardar los resultados de los experimentos
+EXPERIMENT_XLSX = "../runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
@@ -35,6 +35,25 @@ MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para
 def epsilon(step):
     return max(EPS_END, EPS_START - step / EPS_DECAY)
 
+def save_experiment_to_excel(row_dict, filename="../runs/experiments.xlsx"):
+    # Convertimos el diccionario en un DataFrame de una sola fila
+    new_df = pd.DataFrame([row_dict])
+    
+    # Comprobamos si el archivo ya existe
+    if not os.path.isfile(filename):
+        # Si no existe, creamos el archivo con cabeceras
+        new_df.to_excel(filename, index=False, engine='openpyxl')
+    else:
+        # Si ya existe, abrimos el archivo y añadimos la fila al final
+        with pd.ExcelWriter(filename, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            # Cargamos la hoja actual para saber dónde escribir
+            try:
+                start_row = writer.book['Sheet1'].max_row
+            except KeyError:
+                start_row = 0
+            
+            # Escribimos los datos sin repetir la cabecera (header=False)
+            new_df.to_excel(writer, index=False, header=False, startrow=start_row, sheet_name='Sheet1')
 
 def main():
     np.random.seed(SEED)
@@ -88,7 +107,7 @@ def main():
 
         if done: # Si el episodio ha terminado, registramos la recompensa total del episodio en TensorBoard y reiniciamos el entorno
             writer.add_scalar("episode_reward", episode_reward, step)
-            state, _ = env.reset()
+            state, _ = env.reset(seed=SEED)
             episode_reward = 0.0 
             n_episodes += 1
 
@@ -129,7 +148,7 @@ def main():
             q_net.eval()
             test_rewards = []
             for _ in tqdm(range(10)):
-                test_state, _ = env.reset()
+                test_state, _ = env.reset(seed=SEED)
                 test_episode_reward = 0.0
                 while True:
                     with torch.no_grad():
@@ -165,16 +184,10 @@ def main():
         f"avg_eval_reward": avg_test_reward,
         "n_episodes": n_episodes,
     }
+    
+    print(f"avg_eval_reward: {avg_test_reward:.2f}, n_episodes: {n_episodes}")
 
-    df_new = pd.DataFrame([row])
-
-    if os.path.exists(EXPERIMENT_XLSX):
-        df_old = pd.read_excel(EXPERIMENT_XLSX)
-        df = pd.concat([df_old, df_new], ignore_index=True)
-    else:
-        df = df_new
-
-    df.to_excel(EXPERIMENT_XLSX, index=False)
+    save_experiment_to_excel(row, EXPERIMENT_XLSX)
     print(f"[Excel] Appended results to {EXPERIMENT_XLSX}")
 
     env.close()

@@ -35,7 +35,7 @@ class PixelStackWrapper(gym.Wrapper):
         )
 
     def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
+        _, info = self.env.reset(**kwargs)
         frame = self.env.render() # Obtiene el frame RGB actual
         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
 
@@ -117,6 +117,45 @@ def make_discrete_action_set(action_dim: int):
 
     return np.stack(actions, axis=0)
 
+def make_discrete_action_set_legprototype(action_dim: int):
+    Z = np.zeros(action_dim, dtype=np.float32)
+    
+    # Magnitudes (suaves para evitar inestabilidad al inicio)
+    a = 0.25 
+    b = 0.15 
+
+    actions = []
+
+    def add(vector):
+        actions.append(np.clip(vector, -1.0, 1.0)) # Aseguramos que las acciones estén en el rango [-1, 1]   
+    
+    # Acción de idle (ninguna acción)
+    add(Z)
+    
+    # 0) empuje global suave hacia adelante (arranque)
+    add(np.full(action_dim, +b, dtype=np.float32))
+    
+    # 1) empuje global suave hacia atrás (freno)
+    add(np.full(action_dim, -b, dtype=np.float32))  
+    
+    # 2) empuja pierna 1 (extiende rodilla + empuja tobillo + hip suave)
+    add(np.array([+b, -a, +a, 0, 0, 0], dtype=np.float32))
+
+    # 3) empuja pierna 2
+    add(np.array([0, 0, 0, +b, -a, +a], dtype=np.float32))
+
+    # 4) recupera pierna 1 (flexiona rodilla)
+    add(np.array([0, +a, 0, 0, 0, 0], dtype=np.float32))
+
+    # 5) recupera pierna 2
+    add(np.array([0, 0, 0, 0, +a, 0], dtype=np.float32))
+
+    # 6) estabiliza (hips hacia atrás suave para no “tirarse”)
+    add(np.array([-b, 0, 0, -b, 0, 0], dtype=np.float32))
+
+    return np.stack(actions, axis=0)
+    
+
 
 class DiscreteActionWrapper(gym.ActionWrapper):
     """
@@ -126,7 +165,8 @@ class DiscreteActionWrapper(gym.ActionWrapper):
         super().__init__(env)
         assert isinstance(env.action_space, gym.spaces.Box) # Comprobamos que el espacio de acciones original es continuo
 
-        self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
+        # self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
+        self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
         self.action_space = gym.spaces.Discrete(self._actions.shape[0]) # Redefinimos el espacio de acciones a discreto con el número de acciones prototipo
 
     def action(self, act_idx):
