@@ -13,7 +13,6 @@ from datetime import datetime
 # -----------------------------
 # Hiperparámetros
 # -----------------------------
-# Esto es una prueba para cambiar la cuenta de git
 
 
 ENV_ID = "Walker2d-v5"
