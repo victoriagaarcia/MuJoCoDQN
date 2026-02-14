@@ -17,7 +17,7 @@ from datetime import datetime
 
 ENV_ID = "Walker2d-v5"
 TOTAL_STEPS = 5_000_000 # Número total de pasos de interacción con el entorno (no episodios)
-BUFFER_SIZE = 100_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
+BUFFER_SIZE = 500_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
 LR = 1e-4
@@ -61,10 +61,12 @@ def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
             new_df.to_excel(writer, index=False, header=False, startrow=start_row, sheet_name='Sheet1')
 
 def make_env():
-    env = gym.make(ENV_ID, render_mode="rgb_array")
-    env = DiscreteActionWrapper(env)
-    env = PixelStackWrapper(env)
-    return env
+    def _thunk():
+        env = gym.make(ENV_ID, render_mode="rgb_array")
+        env = DiscreteActionWrapper(env)
+        env = PixelStackWrapper(env)
+        return env
+    return _thunk
 
 def main():
     np.random.seed(SEED)
@@ -80,7 +82,6 @@ def main():
     # env = PixelStackWrapper(env)
 
     env = AsyncVectorEnv([make_env for _ in range(NUM_ENVS)]) # Creamos un entorno vectorizado con múltiples instancias en paralelo para acelerar el entrenamiento
-    
     n_actions = env.single_action_space.n
 
     # Creamos la red Q (online: para seleccionar acciones) y la red objetivo (target: para calcular los objetivos de entrenamiento)
@@ -91,7 +92,8 @@ def main():
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
     buffer = ReplayBuffer(BUFFER_SIZE)
 
-    state, _ = env.reset(seed=SEED) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
+    seeds = [SEED + i for i in range(NUM_ENVS)] # Semillas diferentes para cada entorno paralelo para mayor diversidad de experiencias
+    state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
     # episode_reward = 0.0
     # n_episodes = 0
 
@@ -99,6 +101,9 @@ def main():
     n_episodes = 0
     avg_test_reward = np.nan  # para que exista incluso si no llegas a guardar checkpoint
 
+    # Escala target update por NUM_ENVS (en términos de transiciones reales)
+    target_update_steps = max(1, TARGET_UPDATE // NUM_ENVS)
+    
     for step in tqdm(range(TOTAL_STEPS)):
         eps = epsilon(step) # Calculamos el valor de epsilon para esta etapa del entrenamiento (decay lineal)
 
@@ -109,7 +114,7 @@ def main():
         n_rand = int(rand_mask.sum())
         if n_rand > 0:
             actions[rand_mask] = np.array(
-                [env.single_action_space.sample() for _ in range(rand_mask.sum())],
+                [env.single_action_space.sample() for _ in range(n_rand)],
                 dtype=np.int64
             ) # Acción aleatoria para los entornos seleccionados por la máscara
         
@@ -148,11 +153,9 @@ def main():
             for i in done_ids:
                 writer.add_scalar("episode_reward", float(episode_rewards[i]), step)
                 episode_rewards[i] = 0.0
+                n_episodes += 1
             
-            if hasattr(env, "envs"): # Si el entorno es vectorizado, reiniciamos solo los entornos que han terminado
-                next_state, _ = env.reset(seed=SEED)
-            else:
-                next_state, _ = env.reset(seed=SEED)
+            state, _ = env.reset(seed=seeds)
         else:
             state = next_state # Actualizamos el estado actual al siguiente estado para la próxima iteración
 
@@ -186,7 +189,7 @@ def main():
             writer.add_scalar("epsilon", eps, step)
             
 
-        if step % TARGET_UPDATE == 0: # Cada cierto número de pasos, actualizamos la red objetivo copiando los pesos de la red online
+        if step % target_update_steps == 0: # Cada cierto número de pasos, actualizamos la red objetivo copiando los pesos de la red online
             target_net.load_state_dict(q_net.state_dict())
         
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
@@ -200,8 +203,8 @@ def main():
             eval_env = DiscreteActionWrapper(eval_env)
             eval_env = PixelStackWrapper(eval_env)
 
-            for _ in tqdm(range(10)):
-                test_state, _ = eval_env.reset(seed=SEED)
+            for ep in tqdm(range(10)):
+                test_state, _ = eval_env.reset(seed=SEED + 10_000 + ep) # Semilla diferente para el test de evaluación para mayor diversidad
                 test_episode_reward = 0.0
                 while True:
                     with torch.no_grad():
