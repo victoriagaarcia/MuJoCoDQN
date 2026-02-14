@@ -13,6 +13,8 @@ from datetime import datetime
 # -----------------------------
 # Hiperparámetros
 # -----------------------------
+# Esto es una prueba para cambiar la cuenta de git
+
 
 ENV_ID = "Walker2d-v5"
 TOTAL_STEPS = 5_000_000 # Número total de pasos de interacción con el entorno (no episodios)
