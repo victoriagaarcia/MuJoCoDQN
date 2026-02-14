@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
+from gymnasium.vector import AsyncVectorEnv
 from src.dqn import QNetwork, ReplayBuffer
 from src.envs import DiscreteActionWrapper, PixelStackWrapper
 from datetime import datetime
@@ -29,6 +30,7 @@ START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
 EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
+NUM_ENVS = 8 # Número de entornos paralelos para entrenamiento 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
@@ -57,19 +59,27 @@ def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
             # Escribimos los datos sin repetir la cabecera (header=False)
             new_df.to_excel(writer, index=False, header=False, startrow=start_row, sheet_name='Sheet1')
 
+def make_env():
+    env = gym.make(ENV_ID, render_mode="rgb_array")
+    env = DiscreteActionWrapper(env)
+    env = PixelStackWrapper(env)
+    return env
+
 def main():
     np.random.seed(SEED)
     torch.manual_seed(SEED)
 
     writer = SummaryWriter(MODEL_DIR) # Creamos un escritor de TensorBoard para registrar métricas durante el entrenamiento
 
-    # Creamos el entorno con renderizado en modo "rgb_array" para obtener frames como imágenes
-    env = gym.make(ENV_ID, render_mode="rgb_array")
-    # Envolvemos el entorno para discretizar las acciones y apilar frames de píxeles
-    env = DiscreteActionWrapper(env)
-    # Envolvemos el entorno para convertir las observaciones en stacks de frames de píxeles preprocesados (grises y redimensionados) CONTINUOS
-    env = PixelStackWrapper(env)
+    # # Creamos el entorno con renderizado en modo "rgb_array" para obtener frames como imágenes
+    # env = gym.make(ENV_ID, render_mode="rgb_array")
+    # # Envolvemos el entorno para discretizar las acciones y apilar frames de píxeles
+    # env = DiscreteActionWrapper(env)
+    # # Envolvemos el entorno para convertir las observaciones en stacks de frames de píxeles preprocesados (grises y redimensionados) CONTINUOS
+    # env = PixelStackWrapper(env)
 
+    env = AsyncVectorEnv([make_env for _ in range(NUM_ENVS)]) # Creamos un entorno vectorizado con múltiples instancias en paralelo para acelerar el entrenamiento
+    
     n_actions = env.action_space.n
 
     # Creamos la red Q (online: para seleccionar acciones) y la red objetivo (target: para calcular los objetivos de entrenamiento)
@@ -81,37 +91,70 @@ def main():
     buffer = ReplayBuffer(BUFFER_SIZE)
 
     state, _ = env.reset(seed=SEED) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
-    episode_reward = 0.0
+    # episode_reward = 0.0
+    # n_episodes = 0
+
+    episode_rewards = np.zeros(NUM_ENVS, dtype=np.float32)
     n_episodes = 0
+    avg_test_reward = np.nan  # para que exista incluso si no llegas a guardar checkpoint
 
     for step in tqdm(range(TOTAL_STEPS)):
         eps = epsilon(step) # Calculamos el valor de epsilon para esta etapa del entrenamiento (decay lineal)
 
-        # Decisión exploración vs explotación según epsilon-greedy
-        if np.random.rand() < eps:
-            action = env.action_space.sample() # Acción aleatoria (exploración)
-        else:
-            with torch.no_grad():
-                s = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-                action = q_net(s).argmax(dim=1).item() # Acción con mayor valor Q según la red online (explotación)
-
-        # Ejecutamos la acción en el entorno y obtenemos la siguiente transición (s, a, r, s', done)
-        next_state, reward, terminated, truncated, _ = env.step(action)
-        done = terminated or truncated
-
-        # Guardamos la transición en el replay buffer
-        buffer.push(state, action, reward, next_state, done)
+        # acciones aleatorias por entorno (vector)
+        actions = np.empty((NUM_ENVS,), dtype=np.int64)
+        rand_mask = np.random.rand(NUM_ENVS) < eps # Máscara booleana para decidir qué entornos toman acción aleatoria
         
-        # Actualizamos el estado actual al siguiente estado
-        state = next_state
-        # Acumulamos la recompensa del episodio actual
-        episode_reward += reward
+        n_rand = int(rand_mask.sum())
+        if n_rand > 0:
+            actions[rand_mask] = np.array(
+                [env.single_action_space.sample() for _ in range(rand_mask.sum())],
+                dtype=np.int64
+            ) # Acción aleatoria para los entornos seleccionados por la máscara
+        
+        # Decisión exploración vs explotación según epsilon-greedy
+        if (~rand_mask).any(): # Si hay algún entorno que no toma acción aleatoria, calculamos la acción con la red Q para esos entornos
+            with torch.no_grad():
+                s = torch.tensor(state[~rand_mask], dtype=torch.float32).to(DEVICE)
+                greedy = q_net(s).argmax(dim=1).cpu().numpy() # Acciones con mayor valor Q según la red online para los entornos que no toman acción aleatoria
+            actions[~rand_mask] = greedy
+        
+        # Ejecutamos la acción en el entorno y obtenemos la siguiente transición (s, a, r, s', done)
+        next_state, reward, terminated, truncated, _ = env.step(actions)
+        done = np.logical_or(terminated, truncated) 
 
-        if done: # Si el episodio ha terminado, registramos la recompensa total del episodio en TensorBoard y reiniciamos el entorno
-            writer.add_scalar("episode_reward", episode_reward, step)
-            state, _ = env.reset(seed=SEED)
-            episode_reward = 0.0 
-            n_episodes += 1
+        for i in range(NUM_ENVS):
+            buffer.push(
+                state[i],
+                int(actions[i]),
+                float(reward[i]),
+                next_state[i],
+                bool(done[i])
+            )
+        
+        # # Guardamos la transición en el replay buffer
+        # buffer.push(state, actions, reward, next_state, done)
+        
+        # # Actualizamos el estado actual al siguiente estado
+        # state = next_state
+        # # Acumulamos la recompensa del episodio actual
+        # episode_rewards += reward
+        
+        episode_rewards += reward.astype(np.float32) # Acumulamos la recompensa del episodio actual para cada entorno
+
+        if done.any(): # Si el episodio ha terminado, registramos la recompensa total del episodio en TensorBoard y reiniciamos el entorno
+            done_ids = np.where(done)[0]
+            for i in done_ids:
+                writer.add_scalar("episode_reward", float(episode_rewards[i]), step)
+                episode_rewards[i] = 0.0
+            
+            if hasattr(env, "envs"): # Si el entorno es vectorizado, reiniciamos solo los entornos que han terminado
+                next_state, _ = env.reset(seed=SEED)
+            else:
+                next_state, _ = env.reset(seed=SEED)
+        else:
+            state = next_state # Actualizamos el estado actual al siguiente estado para la próxima iteración
+
 
         if len(buffer) > START_TRAINING: # Empezamos a entrenar la red Q solo después de haber llenado el buffer con suficientes experiencias iniciales
             # Muestreamos un batch aleatorio de transiciones del buffer para entrenar la red Q
@@ -134,6 +177,8 @@ def main():
 
             optimizer.zero_grad()
             loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0) # Clipping de gradientes para evitar explosión de gradientes
             optimizer.step()
 
             writer.add_scalar("loss", loss.item(), step)
@@ -149,14 +194,19 @@ def main():
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
             q_net.eval()
             test_rewards = []
+            
+            eval_env = gym.make(ENV_ID, render_mode="rgb_array")
+            eval_env = DiscreteActionWrapper(eval_env)
+            eval_env = PixelStackWrapper(eval_env)
+
             for _ in tqdm(range(10)):
-                test_state, _ = env.reset(seed=SEED)
+                test_state, _ = eval_env.reset(seed=SEED)
                 test_episode_reward = 0.0
                 while True:
                     with torch.no_grad():
                         s = torch.tensor(test_state, dtype=torch.float32).unsqueeze(0).to(DEVICE)
                         action = q_net(s).argmax(dim=1).item()
-                    test_state, reward, terminated, truncated, _ = env.step(action)
+                    test_state, reward, terminated, truncated, _ = eval_env.step(action)
                     test_episode_reward += reward
                     if terminated or truncated:
                         break
