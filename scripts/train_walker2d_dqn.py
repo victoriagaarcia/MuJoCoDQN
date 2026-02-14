@@ -81,7 +81,7 @@ def main():
 
     env = AsyncVectorEnv([make_env for _ in range(NUM_ENVS)]) # Creamos un entorno vectorizado con múltiples instancias en paralelo para acelerar el entrenamiento
     
-    n_actions = env.action_space.n
+    n_actions = env.single_action_space.n
 
     # Creamos la red Q (online: para seleccionar acciones) y la red objetivo (target: para calcular los objetivos de entrenamiento)
     q_net = QNetwork(n_actions).to(DEVICE)
