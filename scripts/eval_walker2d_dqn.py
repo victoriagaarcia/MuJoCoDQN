@@ -12,9 +12,9 @@ from src.envs import DiscreteActionWrapper, PixelStackWrapper
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb11_12_00_18"
+MODEL_DATE = "Feb14_13_28_35"
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step999999.pt"  # ← ajusta esto
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step500000.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
 N_EPISODES = 3
 
@@ -32,7 +32,7 @@ def main():
         env,
         video_folder=VIDEO_DIR,
         episode_trigger=lambda ep: True,  # graba TODOS los episodios
-        name_prefix="final_video_999999steps"
+        name_prefix="final_video_500000steps"
     )
 
     # 3) Cargar modelo

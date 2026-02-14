@@ -99,9 +99,11 @@ def make_discrete_action_set(action_dim: int):
     Z = np.zeros(action_dim, dtype=np.float32)
 
     # magnitudes suaves (evita 1.0 al inicio)
-    a1 = 0.2
-    a2 = 0.4
-
+    # a1 = 0.2
+    a1 = 0.4
+    # a2 = 0.4
+    a2 = 1.0  
+    
     actions = [Z]
 
     # empujes globales suaves (a veces ayuda a avanzar, pero sin reventar)
@@ -165,8 +167,8 @@ class DiscreteActionWrapper(gym.ActionWrapper):
         super().__init__(env)
         assert isinstance(env.action_space, gym.spaces.Box) # Comprobamos que el espacio de acciones original es continuo
 
-        # self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
-        self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
+        self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
+        # self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
         self.action_space = gym.spaces.Discrete(self._actions.shape[0]) # Redefinimos el espacio de acciones a discreto con el número de acciones prototipo
 
     def action(self, act_idx):

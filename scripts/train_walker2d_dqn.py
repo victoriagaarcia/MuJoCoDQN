@@ -12,30 +12,32 @@ from datetime import datetime
 # -----------------------------
 # Hiperparámetros
 # -----------------------------
+
 ENV_ID = "Walker2d-v5"
-TOTAL_STEPS = 1_000_000 # Número total de pasos de interacción con el entorno (no episodios)
+TOTAL_STEPS = 5_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 100_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
-BATCH_SIZE = 32 # Tamaño del batch para el entrenamiento de la red Q
+BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
 LR = 1e-4
-TARGET_UPDATE = 5_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
+TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
 START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_DECAY = 600_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
-
+EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
+START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
-EXPERIMENT_XLSX = "../runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
+EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
 
 def epsilon(step):
-    return max(EPS_END, EPS_START - step / EPS_DECAY)
+   # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
+   return max(EPS_END, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY)) # Decay lineal con fase inicial de epsilon constante
 
-def save_experiment_to_excel(row_dict, filename="../runs/experiments.xlsx"):
+def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
     # Convertimos el diccionario en un DataFrame de una sola fila
     new_df = pd.DataFrame([row_dict])
     
@@ -142,7 +144,7 @@ def main():
             target_net.load_state_dict(q_net.state_dict())
         
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
-        if step % 100_000 == 0 and step > 0 or step == TOTAL_STEPS - 1:
+        if step % 250_000 == 0 and step > 0 or step == TOTAL_STEPS - 1:
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{step}.pt")
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
             q_net.eval()
@@ -183,6 +185,7 @@ def main():
         # métricas resumen
         f"avg_eval_reward": avg_test_reward,
         "n_episodes": n_episodes,
+        "comments": "subiendo batch size",
     }
     
     print(f"avg_eval_reward: {avg_test_reward:.2f}, n_episodes: {n_episodes}")
