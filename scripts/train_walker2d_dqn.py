@@ -24,17 +24,23 @@ LR = 1e-4
 TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
 START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
-EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
+# EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
+EPS_START = 0.1
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
 EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
 EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
-NUM_ENVS = 8 # Número de entornos paralelos para entrenamiento 
+NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
+# MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
+MODEL_DIR = f"runs/Feb14_20_38_13" # Directorio para guardar el modelo entrenado y los logs de TensorBoard (ajusta esto)
+
+MODEL_DATE = "Feb14_20_38_13"
+# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step3000000.pt"  # ← ajusta esto
 
 def epsilon(step):
    # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
@@ -60,7 +66,7 @@ def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
             # Escribimos los datos sin repetir la cabecera (header=False)
             new_df.to_excel(writer, index=False, header=False, startrow=start_row, sheet_name='Sheet1')
 
-def make_env():
+def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array")
         env = DiscreteActionWrapper(env)
@@ -81,11 +87,13 @@ def main():
     # # Envolvemos el entorno para convertir las observaciones en stacks de frames de píxeles preprocesados (grises y redimensionados) CONTINUOS
     # env = PixelStackWrapper(env)
 
-    env = AsyncVectorEnv([make_env for _ in range(NUM_ENVS)]) # Creamos un entorno vectorizado con múltiples instancias en paralelo para acelerar el entrenamiento
+    env = AsyncVectorEnv([make_env(i) for i in range(NUM_ENVS)]) # Creamos un entorno vectorizado con múltiples instancias en paralelo para acelerar el entrenamiento
     n_actions = env.single_action_space.n
 
     # Creamos la red Q (online: para seleccionar acciones) y la red objetivo (target: para calcular los objetivos de entrenamiento)
     q_net = QNetwork(n_actions).to(DEVICE)
+    q_net.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    
     target_net = QNetwork(n_actions).to(DEVICE)
     target_net.load_state_dict(q_net.state_dict()) # Inicializamos la red objetivo con los mismos pesos que la red online
 
@@ -151,7 +159,7 @@ def main():
         if done.any(): # Si el episodio ha terminado, registramos la recompensa total del episodio en TensorBoard y reiniciamos el entorno
             done_ids = np.where(done)[0]
             for i in done_ids:
-                writer.add_scalar("episode_reward", float(episode_rewards[i]), step)
+                writer.add_scalar("episode_reward", float(episode_rewards[i]), step + 3_000_000) # Registramos la recompensa total del episodio en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
                 episode_rewards[i] = 0.0
                 n_episodes += 1
             
@@ -185,8 +193,8 @@ def main():
             torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0) # Clipping de gradientes para evitar explosión de gradientes
             optimizer.step()
 
-            writer.add_scalar("loss", loss.item(), step)
-            writer.add_scalar("epsilon", eps, step)
+            writer.add_scalar("loss", loss.item(), step + 3_000_000) # Registramos la pérdida en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+            writer.add_scalar("epsilon", eps, step + 3_000_000) # Registramos el valor de epsilon en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
             
 
         if step % target_update_steps == 0: # Cada cierto número de pasos, actualizamos la red objetivo copiando los pesos de la red online
@@ -194,7 +202,7 @@ def main():
         
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
         if step % 250_000 == 0 and step > 0 or step == TOTAL_STEPS - 1:
-            torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{step}.pt")
+            torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{step + 3_000_000}.pt")
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
             q_net.eval()
             test_rewards = []
@@ -216,7 +224,8 @@ def main():
                         break
                 test_rewards.append(test_episode_reward)
             avg_test_reward = np.mean(test_rewards)
-            print(f"Checkpoint saved at step {step}, average test reward over 10 episodes: {avg_test_reward}")
+            print(f"Checkpoint saved at step {step + 3_000_000}, average test reward over 10 episodes: {avg_test_reward}")
+            writer.add_scalar("avg_test_reward", avg_test_reward, step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
             q_net.train() # Volvemos a poner la red en modo entrenamiento después del test de evaluación
     
     
