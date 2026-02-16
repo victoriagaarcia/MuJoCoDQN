@@ -8,31 +8,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 ENV_ID = "Walker2d-v5"
 MODEL_PATH = "runs/dqn_walker2d_final.pt"  # lo ajustamos luego
 
-class IgnoreAngleTerminationWrapper(gym.Wrapper):
-    def __init__(self, env):
-        super().__init__(env)
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-
-        # Accedemos al estado interno MuJoCo
-        z = self.env.unwrapped.data.qpos[1]       # altura
-        angle = self.env.unwrapped.data.qpos[2]   # ángulo torso
-
-        # Rango saludable original de altura
-        healthy_z_range = self.env.unwrapped._healthy_z_range
-
-        # NUEVA condición: solo depende de altura
-        healthy_z = healthy_z_range[0] < z < healthy_z_range[1]
-
-        # Ignoramos condición del ángulo
-        terminated = not healthy_z
-
-        return obs, reward, terminated, truncated, info
-
 def main():
     env = gym.make(ENV_ID, render_mode="human")
-    env = IgnoreAngleTerminationWrapper(env)
     env = DiscreteActionWrapper(env)
     env = PixelStackWrapper(env)
 

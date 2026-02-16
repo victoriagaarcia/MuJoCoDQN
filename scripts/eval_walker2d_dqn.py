@@ -20,10 +20,32 @@ N_EPISODES = 3
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
+class IgnoreAngleTerminationWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        # Accedemos al estado interno MuJoCo
+        z = self.env.unwrapped.data.qpos[1]       # altura
+        angle = self.env.unwrapped.data.qpos[2]   # ángulo torso
+
+        # Rango saludable original de altura
+        healthy_z_range = self.env.unwrapped._healthy_z_range
+
+        # NUEVA condición: solo depende de altura
+        healthy_z = healthy_z_range[0] < z < healthy_z_range[1]
+
+        # Ignoramos condición del ángulo
+        terminated = not healthy_z
+
+        return obs, reward, terminated, truncated, info
 
 def main():
     # 1) Crear entorno base
     env = gym.make(ENV_ID, render_mode="rgb_array")
+    env = IgnoreAngleTerminationWrapper(env)  # Ignoramos terminación por ángulo
     env = DiscreteActionWrapper(env)
     env = PixelStackWrapper(env)
 
