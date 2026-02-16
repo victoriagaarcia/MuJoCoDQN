@@ -38,6 +38,74 @@ class IgnoreAngleTerminationWrapper(gym.Wrapper):
 
         return obs, reward, terminated, truncated, info
 
+
+class ForwardAliveSmoothReward(gym.Wrapper):
+    def __init__(self, env, alpha=2.0, beta=1.0, gamma=0.6, delta=1.0, lam=0.05):
+        super().__init__(env)
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.delta = delta
+        self.lam = lam
+        self.prev_action = None
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self.prev_action = None
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        info = dict(info)
+
+        # Intentamos leer términos del info (si tu gym los expone)
+        forward = info.get("reward_forward", None)
+        ctrl = info.get("reward_ctrl", None)
+
+        # Fallbacks robustos
+        vx = float(self.env.unwrapped.data.qvel[0])  # velocidad x torso
+        if forward is None:
+            forward = vx
+        if ctrl is None:
+            ctrl = 0.0
+
+        # Healthy: usamos el criterio interno del entorno
+        healthy = 1.0 if getattr(self.env.unwrapped, "is_healthy", True) else 0.0
+        # En algunas versiones is_healthy es @property
+        try:
+            healthy = 1.0 if self.env.unwrapped.is_healthy else 0.0
+        except Exception:
+            pass
+
+        # Penaliza ir hacia atrás
+        backward_pen = max(0.0, -vx)
+
+        # Penaliza cambios bruscos de acción (suavidad)
+        a = np.array(action, dtype=np.float32)
+        smooth_pen = 0.0
+        if self.prev_action is not None:
+            smooth_pen = float(np.sum((a - self.prev_action) ** 2))
+        self.prev_action = a
+
+        new_reward = (
+            self.alpha * float(forward)
+            + self.beta * float(healthy)
+            - self.gamma * float(ctrl)
+            - self.delta * float(backward_pen)
+            - self.lam * float(smooth_pen)
+        )
+
+        # Debug en info (útil para análisis)
+        info["shaping/forward"] = float(forward)
+        info["shaping/healthy"] = float(healthy)
+        info["shaping/ctrl"] = float(ctrl)
+        info["shaping/backward_pen"] = float(backward_pen)
+        info["shaping/smooth_pen"] = float(smooth_pen)
+        info["shaping/reward"] = float(new_reward)
+
+        return obs, new_reward, terminated, truncated, info
+
+
 class PixelStackWrapper(gym.Wrapper):
     """
     Convierte la observación en un stack de K frames preprocesados

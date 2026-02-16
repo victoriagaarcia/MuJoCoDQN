@@ -7,7 +7,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
 from src.dqn import QNetwork, ReplayBuffer
-from src.envs import DiscreteActionWrapper, PixelStackWrapper
+from src.envs import DiscreteActionWrapper, PixelStackWrapper, ForwardAliveSmoothReward, IgnoreAngleTerminationWrapper
 from datetime import datetime
 
 # -----------------------------
@@ -24,8 +24,8 @@ LR = 1e-4
 TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
 START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
-# EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
-EPS_START = 0.1
+EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
+# EPS_START = 0.1
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
 EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
@@ -33,6 +33,14 @@ SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
 EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
 NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento 
+
+# Configuracion de reward
+ALPHA_RW = 2.0
+BETA_RW = 1.0
+GAMMA_RW=0.8
+DELTA_RW = 1.0
+LAM_RW = 0.05
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
@@ -69,6 +77,8 @@ def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
 def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array")
+        env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+        env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         env = PixelStackWrapper(env)
         return env
@@ -208,6 +218,8 @@ def main():
             test_rewards = []
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array")
+            eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+            eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
             eval_env = PixelStackWrapper(eval_env)
 
