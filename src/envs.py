@@ -88,7 +88,7 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         self.prev_action = a
 
         new_reward = (
-            self.alpha * float(forward)
+            self.alpha * 1.0 * (vx > 0.0)
             + self.beta * float(healthy)
             - self.gamma * float(ctrl)
             - self.delta * float(backward_pen)
@@ -189,10 +189,10 @@ def make_discrete_action_set(action_dim: int):
     Z = np.zeros(action_dim, dtype=np.float32)
 
     # magnitudes suaves (evita 1.0 al inicio)
-    # a1 = 0.2
-    a1 = 0.4
-    # a2 = 0.4
-    a2 = 1.0  
+    a1 = 0.2
+    # a1 = 0.4
+    a2 = 0.6
+    # a2 = 1.0  
     
     actions = [Z]
 

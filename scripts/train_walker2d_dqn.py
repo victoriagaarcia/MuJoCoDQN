@@ -16,7 +16,7 @@ from datetime import datetime
 
 
 ENV_ID = "Walker2d-v5"
-TOTAL_STEPS = 5_000_000 # Número total de pasos de interacción con el entorno (no episodios)
+TOTAL_STEPS = 6_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 500_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
@@ -27,17 +27,17 @@ START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a en
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
 # EPS_START = 0.1
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
-START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
+EPS_DECAY = 3_000_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
+START_DECAY = 50_000 # Número de pasos antes de empezar a decaer epsilon 
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
 EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
 NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento 
 
 # Configuracion de reward
-ALPHA_RW = 2.0
+ALPHA_RW = 1.5
 BETA_RW = 1.0
-GAMMA_RW=0.8
+GAMMA_RW = 0.8
 DELTA_RW = 1.0
 LAM_RW = 0.05
 
