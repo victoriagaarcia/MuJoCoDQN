@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 from src.dqn import QNetwork
-from src.envs import DiscreteActionWrapper, PixelStackWrapper, IgnoreAngleTerminationWrapper
+from src.envs import DiscreteActionWrapper, PixelStackWrapper, IgnoreAngleTerminationWrapper, ForwardAliveSmoothReward
 
 # -----------------------------
 # Configuración
@@ -12,17 +12,25 @@ from src.envs import DiscreteActionWrapper, PixelStackWrapper, IgnoreAngleTermin
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb14_20_38_13"
+MODEL_DATE = "Feb16_14_10_20"
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step3750000.pt"  # ← ajusta esto
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step4750000.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
 N_EPISODES = 3
+
+# Configuracion de reward
+ALPHA_RW = 2.0
+BETA_RW = 1.0
+GAMMA_RW=0.8
+DELTA_RW = 1.0
+LAM_RW = 0.05
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
 def main():
     # 1) Crear entorno base
     env = gym.make(ENV_ID, render_mode="rgb_array")
+    env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
     env = IgnoreAngleTerminationWrapper(env)  # Ignoramos terminación por ángulo
     env = DiscreteActionWrapper(env)
     env = PixelStackWrapper(env)
@@ -32,7 +40,7 @@ def main():
         env,
         video_folder=VIDEO_DIR,
         episode_trigger=lambda ep: True,  # graba TODOS los episodios
-        name_prefix="final_video_3750000steps"
+        name_prefix="final_video_4750000steps"
     )
 
     # 3) Cargar modelo
