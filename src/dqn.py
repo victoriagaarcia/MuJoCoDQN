@@ -40,20 +40,32 @@ class QNetwork(nn.Module): # Aproxima Q(s,a), es decir, el valor esperado si hag
 # Replay Buffer
 # -----------------------------
 class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) para luego muestrear aleatoriamente y romper la correlación temporal entre muestras
-    def __init__(self, capacity: int):
-        self.buffer = deque(maxlen=capacity)
+    def __init__(self, capacity, obs_shape=(4,84,84), device="cpu"):
+        self.capacity = capacity
+        self.device = device
+
+        self.states = np.zeros((capacity, *obs_shape), dtype=np.float32)
+        self.next_states = np.zeros((capacity, *obs_shape), dtype=np.float32)
+        self.actions = np.zeros((capacity,), dtype=np.int64)
+        self.rewards = np.zeros((capacity,), dtype=np.float32)
+        self.dones = np.zeros((capacity,), dtype=np.float32)
+
+        self.idx = 0
+        self.size = 0
+
 
     def push(self, state, action, reward, next_state, done):
         self.buffer.append((state, action, reward, next_state, done))
 
-    def sample(self, batch_size: int):
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = map(np.array, zip(*batch))
+    def sample(self, batch_size):
+        idxs = np.random.randint(0, len(self.buffer), size=batch_size)
+        states, actions, rewards, next_states, dones = zip(*(self.buffer[i] for i in idxs))
+
         return (
-            torch.tensor(states, dtype=torch.float32),
+            torch.from_numpy(np.stack(states)).float(),
             torch.tensor(actions, dtype=torch.long),
             torch.tensor(rewards, dtype=torch.float32),
-            torch.tensor(next_states, dtype=torch.float32),
+            torch.from_numpy(np.stack(next_states)).float(),
             torch.tensor(dones, dtype=torch.float32),
         )
 
