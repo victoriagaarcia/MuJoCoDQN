@@ -106,6 +106,31 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         return obs, new_reward, terminated, truncated, info
 
 
+class PixelObsWrapper(gym.Wrapper):
+    """
+    Devuelve 1 frame por step, luego el train hace transpose + frame-stack en batch.
+    Obs: (H, W, 3) uint8
+    """
+    def __init__(self, env, size=84):
+        super().__init__(env)
+        self.size = size
+        self.observation_space = gym.spaces.Box(
+            low=0, high=255, shape=(size, size, 3), dtype=np.uint8
+        )
+
+    def _get_frame(self):
+        frame = self.env.render()  # rgb_array
+        frame = cv2.resize(frame, (self.size, self.size), interpolation=cv2.INTER_AREA)
+        return frame.astype(np.uint8)
+
+    def reset(self, **kwargs):
+        self.env.reset(**kwargs)
+        return self._get_frame(), {}
+
+    def step(self, action):
+        _, reward, terminated, truncated, info = self.env.step(action)
+        return self._get_frame(), reward, terminated, truncated, info
+
 class PixelStackWrapper(gym.Wrapper):
     """
     Convierte la observación en un stack de K frames preprocesados

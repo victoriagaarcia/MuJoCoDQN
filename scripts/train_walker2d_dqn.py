@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
 
 from src.dqn import QNetwork, ReplayBuffer
-from src.envs import DiscreteActionWrapper, PixelStackWrapper, ForwardAliveSmoothReward, IgnoreAngleTerminationWrapper
+from src.envs import DiscreteActionWrapper, PixelStackWrapper, ForwardAliveSmoothReward, IgnoreAngleTerminationWrapper, PixelObsWrapper
 
 # -----------------------------
 # Hiperparámetros
@@ -83,7 +83,8 @@ def make_env(rank:int):
         env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
         env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
-        env = PixelStackWrapper(env)
+        # env = PixelStackWrapper(env)
+        env = PixelObsWrapper(env)
         return env
     return _thunk
 
@@ -242,7 +243,8 @@ def main():
             eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
             eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
-            eval_env = PixelStackWrapper(eval_env)
+            # eval_env = PixelStackWrapper(eval_env)
+            eval_env = PixelObsWrapper(eval_env)
 
             for ep in tqdm(range(10)):
                 test_state, _ = eval_env.reset(seed=SEED + 10_000 + ep) # Semilla diferente para el test de evaluación para mayor diversidad
