@@ -44,6 +44,11 @@ GAMMA_RW = 0.8
 DELTA_RW = 1.0
 LAM_RW = 0.05
 
+# Train con saltos
+TRAIN_FREQ = 4_000 # Como hay 4 envs, poner 4 es como hacer 1 update por iteración
+LOG_EVERY = 5_000
+CHECKPOINT_EVERY = 250_000
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
@@ -138,6 +143,8 @@ def main():
 
     # Contador transiciones reales
     global_step = 0
+    # Contador de updates
+    updates_done = 0
 
     # Escala target update por NUM_ENVS (en términos de transiciones reales)
     def should_update_target(gs: int) -> bool:
@@ -240,7 +247,13 @@ def main():
 
         global_step += NUM_ENVS # Incrementamos el contador de pasos global por el número de entornos paralelos (cada iteración representa NUM_ENVS pasos reales)
 
-        if len(buffer) > START_TRAINING: # Empezamos a entrenar la red Q solo después de haber llenado el buffer con suficientes experiencias iniciales
+        # Contamos los updates que debería haber hecho la red Q según el número de pasos reales y la frecuencia de entrenamiento
+        expected_updates = global_step // TRAIN_FREQ
+
+        # Condición de entrenamiento con saltos
+        while expected_updates > updates_done and len(buffer) > START_TRAINING and len(buffer) >= BATCH_SIZE: # Empezamos a entrenar la red Q solo después de haber llenado el buffer con suficientes experiencias iniciales y asegurándonos de que hay suficientes muestras para un batch completo
+        # Condición de entrenamiento sin saltos (original)
+        # if len(buffer) > START_TRAINING: # Empezamos a entrenar la red Q solo después de haber llenado el buffer con suficientes experiencias iniciales
             # Muestreamos un batch aleatorio de transiciones del buffer para entrenar la red Q
             states, actions, reward, next_states, dones = buffer.sample(BATCH_SIZE)
 
@@ -266,8 +279,12 @@ def main():
             torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0) # Clipping de gradientes para evitar explosión de gradientes
             optimizer.step()
 
-            writer.add_scalar("loss", loss.item(), global_step) # Registramos la pérdida en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
-            writer.add_scalar("epsilon", eps, global_step) # Registramos el valor de epsilon en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+            updates_done += 1 # Incrementamos el contador de updates realizados
+
+            # Logging de métricas en TensorBoard cada LOG_EVERY pasos reales
+            if global_step % LOG_EVERY < NUM_ENVS: # Esto asegura que el logging se haga aproximadamente cada LOG_EVERY pasos reales, ajustando por el número de entornos paralelos
+                writer.add_scalar("loss", loss.item(), global_step) # Registramos la pérdida en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+                writer.add_scalar("epsilon", eps, global_step) # Registramos el valor de epsilon en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
             
         if should_update_target(global_step):
             target_net.load_state_dict(q_net.state_dict())
