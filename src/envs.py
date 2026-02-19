@@ -193,6 +193,7 @@ def make_discrete_action_set(action_dim: int):
     a1 = 0.4
     # a2 = 0.6
     a2 = 1.0  
+    # chat sugiere a1=0.25 y a2=0.35 ¿?
     
     actions = [Z]
 

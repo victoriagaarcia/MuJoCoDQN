@@ -55,19 +55,38 @@ class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) p
 
 
     def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))
+        # self.buffer.append((state, action, reward, next_state, done))
+        self.states[self.idx] = state
+        self.next_states[self.idx] = next_state
+        self.actions[self.idx] = int(action)
+        self.rewards[self.idx] = float(reward)
+        self.dones[self.idx] = float(done)
+
+        self.idx = (self.idx + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
 
     def sample(self, batch_size):
-        idxs = np.random.randint(0, len(self.buffer), size=batch_size)
-        states, actions, rewards, next_states, dones = zip(*(self.buffer[i] for i in idxs))
+        # idxs = np.random.randint(0, len(self.buffer), size=batch_size)
+        # states, actions, rewards, next_states, dones = zip(*(self.buffer[i] for i in idxs))
+
+        # return (
+        #     torch.from_numpy(np.stack(states)).float(),
+        #     torch.tensor(actions, dtype=torch.long),
+        #     torch.tensor(rewards, dtype=torch.float32),
+        #     torch.from_numpy(np.stack(next_states)).float(),
+        #     torch.tensor(dones, dtype=torch.float32),
+        # )
+
+        idxs = np.random.randint(0, self.size, size=batch_size)
 
         return (
-            torch.from_numpy(np.stack(states)).float(),
-            torch.tensor(actions, dtype=torch.long),
-            torch.tensor(rewards, dtype=torch.float32),
-            torch.from_numpy(np.stack(next_states)).float(),
-            torch.tensor(dones, dtype=torch.float32),
+            torch.from_numpy(self.states[idxs]).float().to(self.device),
+            torch.from_numpy(self.actions[idxs]).long().to(self.device),
+            torch.from_numpy(self.rewards[idxs]).float().to(self.device),
+            torch.from_numpy(self.next_states[idxs]).float().to(self.device),
+            torch.from_numpy(self.dones[idxs]).float().to(self.device),
         )
 
     def __len__(self):
-        return len(self.buffer)
+        # return len(self.buffer)
+        return self.size

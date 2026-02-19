@@ -111,7 +111,7 @@ def main():
     target_net.load_state_dict(q_net.state_dict()) # Inicializamos la red objetivo con los mismos pesos que la red online
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
-    buffer = ReplayBuffer(BUFFER_SIZE)
+    buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device=DEVICE) 
 
     seeds = [SEED + i for i in range(NUM_ENVS)] # Semillas diferentes para cada entorno paralelo para mayor diversidad de experiencias
     state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
@@ -163,7 +163,9 @@ def main():
                 final_mask = done
             for i in range(NUM_ENVS):
                 if bool(final_mask[i]) and bool(done[i]):
-                    next_state[i] = final_obs[i] # Reemplazamos el siguiente estado por la observación final para los entornos que han terminado el episodio (esto es importante para que el agente aprenda correctamente a partir de la transición final)
+                    # Reemplazamos el siguiente estado por la observación final para los entornos que han terminado el episodio 
+                    # (esto es importante para que el agente aprenda correctamente a partir de la transición final)
+                    next_state[i] = final_obs[i] 
         
         for i in range(NUM_ENVS):
             buffer.push(
@@ -199,11 +201,12 @@ def main():
             # Muestreamos un batch aleatorio de transiciones del buffer para entrenar la red Q
             states, actions, rewards, next_states, dones = buffer.sample(BATCH_SIZE)
 
-            states = states.to(DEVICE)
-            actions = actions.to(DEVICE)
-            rewards = rewards.to(DEVICE)
-            next_states = next_states.to(DEVICE)
-            dones = dones.to(DEVICE)
+            # states = states.to(DEVICE)
+            # actions = actions.to(DEVICE)
+            # rewards = rewards.to(DEVICE)
+            # next_states = next_states.to(DEVICE)
+            # dones = dones.to(DEVICE)
+            # El buffer ya devuelve los tensores en el dispositivo correcto, así que no es necesario moverlos aquí
 
             # Calculamos los valores Q actuales para las acciones tomadas usando la red online
             q_values = q_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
@@ -227,7 +230,8 @@ def main():
             target_net.load_state_dict(q_net.state_dict())
 
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
-        if (global_step % 250_000 == 0) < NUM_ENVS and global_step > 0 or global_step == TOTAL_STEPS - 1:
+        # if (global_step % 250_000 == 0) < NUM_ENVS and global_step > 0 or global_step == TOTAL_STEPS - 1:
+        if (global_step % 250_000) < NUM_ENVS and global_step > 0 or global_step >= TOTAL_STEPS - NUM_ENVS:
             
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{global_step}.pt")
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
