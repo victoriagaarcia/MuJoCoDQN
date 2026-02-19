@@ -180,14 +180,14 @@ def main():
         # done = np.logical_or(terminated, truncated) 
 
         # Ejecutamos la acción en el entorno vectorizado
-        next_obs, rewards, terminated, truncated, info = env.step(actions)
+        next_obs, reward, terminated, truncated, info = env.step(actions)
         done = np.logical_or(terminated, truncated)
         next_obs_chw = transpose_obs_batch(next_obs) # Transponemos las siguientes observaciones al formato (B, C, H, W)
         next_state = np.concatenate([state[:, 1:, :, :], next_obs_chw], axis=1) # Actualizamos el stack de frames desplazando los frames anteriores y añadiendo el nuevo frame al final del stack
 
         if isinstance(info, dict) and "final_observation" in info:
             final_obs = info["final_observation"]
-            final_mask = info.get("_final_observation", None)
+            final_mask = info.get("_final_observation", done) # None!
             # Esto es si no hacemos stack en train!
             # if final_mask is None:
             #     final_mask = done
@@ -214,7 +214,7 @@ def main():
         buffer.push_batch(
             states=state,
             actions=actions,
-            rewards=rewards,
+            rewards=reward,
             next_states=next_state,
             dones=done
         )
@@ -242,7 +242,7 @@ def main():
 
         if len(buffer) > START_TRAINING: # Empezamos a entrenar la red Q solo después de haber llenado el buffer con suficientes experiencias iniciales
             # Muestreamos un batch aleatorio de transiciones del buffer para entrenar la red Q
-            states, actions, rewards, next_states, dones = buffer.sample(BATCH_SIZE)
+            states, actions, reward, next_states, dones = buffer.sample(BATCH_SIZE)
 
             # states = states.to(DEVICE)
             # actions = actions.to(DEVICE)
@@ -256,7 +256,7 @@ def main():
 
             with torch.no_grad():
                 max_next_q = target_net(next_states).max(1)[0]
-                target = rewards + GAMMA * max_next_q * (1 - dones) # Objetivo de entrenamiento: r + gamma * max_a' Q_target(s', a') si no es terminal, solo r si es terminal
+                target = reward + GAMMA * max_next_q * (1 - dones) # Objetivo de entrenamiento: r + gamma * max_a' Q_target(s', a') si no es terminal, solo r si es terminal
 
             loss = torch.nn.functional.mse_loss(q_values, target) # Calculamos la pérdida como el error cuadrático medio entre los valores Q actuales y los objetivos de entrenamiento
 
@@ -277,7 +277,7 @@ def main():
         if (global_step % 250_000) < NUM_ENVS and global_step > 0 or global_step >= TOTAL_STEPS - NUM_ENVS:
             
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{global_step}.pt")
-            """
+            
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
             q_net.eval()
             test_rewards = []
@@ -304,8 +304,8 @@ def main():
                 test_rewards.append(test_episode_reward)
             avg_test_reward = np.mean(test_rewards)
             eval_env.close()
-            """
-            avg_test_reward = np.nan
+            
+            # avg_test_reward = np.nan
     
             print(f"Checkpoint saved at step {global_step}, average test reward over 10 episodes: {avg_test_reward}")
             writer.add_scalar("avg_test_reward", avg_test_reward, global_step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
