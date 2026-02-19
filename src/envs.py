@@ -6,36 +6,26 @@ from collections import deque
 # =========================================================
 # Preprocesado de píxeles
 # =========================================================
-def preprocess(frame, size=84):
-    """
-    RGB uint8 (H,W,3) -> grayscale uint8 (84,84) en [0,255]
-    """
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-    frame = cv2.resize(frame, (size, size), interpolation=cv2.INTER_AREA) # Normaliza imagen a 84x84
-    # frame = frame.astype(np.float32) / 255.0 # Normaliza a [0,1]
-    return frame # Ahora dejamos como uint8 para ahorrar memoria en el buffer, normalizaremos a float32 al convertir a tensor en el sample()
 
-
-class ImageObsWrapper(gym.ObservationWrapper):
+class RGBObsWrapper(gym.ObservationWrapper):
     """
     Convierte la observación en un frame RGB preprocesado
     Shape final: (84, 84)
     """
-    def __init__(self, env, size=84):
+    def __init__(self, env):
         super().__init__(env)
-        self.size = size
+        frame = self.env.render() # Renderizamos un frame para obtener su tamaño original
+        h, w, c = frame.shape
+        
         self.observation_space = gym.spaces.Box(
             low=0,
             high=255,
-            shape=(size, size, 1),
+            shape=(h, w, c),
             dtype=np.uint8,
         )
 
     def observation(self, obs):
-        frame = self.env.render() # Obtiene el frame RGB actual
-        p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
-        p = p[..., None] # Agrega canal de color (H, W) -> (H, W, 1) para hacer luego un stack
-        return p
+        return self.env.render()
 
 
 class IgnoreAngleTerminationWrapper(gym.Wrapper):
@@ -90,6 +80,7 @@ class ForwardAliveSmoothReward(gym.Wrapper):
             forward = vx
         if ctrl is None:
             ctrl = 0.0
+            # ctrl = 0.001 * float(np.sum(np.square(a)))
 
         # Healthy: usamos el criterio interno del entorno
         healthy = 1.0 if getattr(self.env.unwrapped, "is_healthy", True) else 0.0
@@ -111,6 +102,7 @@ class ForwardAliveSmoothReward(gym.Wrapper):
 
         new_reward = (
             self.alpha * 1.0 * (vx > 0.0)
+            # self.alpha * max(0.0, vx)
             + self.beta * float(healthy)
             - self.gamma * float(ctrl)
             - self.delta * float(backward_pen)
@@ -128,43 +120,43 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         return obs, new_reward, terminated, truncated, info
 
 
-class PixelStackWrapper(gym.Wrapper):
-    """
-    Convierte la observación en un stack de K frames preprocesados
-    Shape final: (K, 84, 84)
-    """
-    def __init__(self, env, k=4, size=84):
-        super().__init__(env)
-        self.k = k
-        self.size = size
-        self.frames = deque(maxlen=k)
+# class PixelStackWrapper(gym.Wrapper):
+#     """
+#     Convierte la observación en un stack de K frames preprocesados
+#     Shape final: (K, 84, 84)
+#     """
+#     def __init__(self, env, k=4, size=84):
+#         super().__init__(env)
+#         self.k = k
+#         self.size = size
+#         self.frames = deque(maxlen=k)
 
-        self.observation_space = gym.spaces.Box(
-            low=0.0,
-            high=1.0,
-            shape=(k, size, size),
-            dtype=np.float32,
-        )
+#         self.observation_space = gym.spaces.Box(
+#             low=0.0,
+#             high=1.0,
+#             shape=(k, size, size),
+#             dtype=np.float32,
+#         )
 
-    def reset(self, **kwargs):
-        _, info = self.env.reset(**kwargs)
-        frame = self.env.render() # Obtiene el frame RGB actual
-        p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
+#     def reset(self, **kwargs):
+#         _, info = self.env.reset(**kwargs)
+#         frame = self.env.render() # Obtiene el frame RGB actual
+#         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
 
-        self.frames.clear()
-        for _ in range(self.k):
-            self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
+#         self.frames.clear()
+#         for _ in range(self.k):
+#             self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
 
-        return np.stack(self.frames, axis=0), info
+#         return np.stack(self.frames, axis=0), info
 
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        frame = self.env.render()
-        p = preprocess(frame, self.size)
+#     def step(self, action):
+#         obs, reward, terminated, truncated, info = self.env.step(action)
+#         frame = self.env.render()
+#         p = preprocess(frame, self.size)
 
-        self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
+#         self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
 
-        return np.stack(self.frames, axis=0), reward, terminated, truncated, info
+#         return np.stack(self.frames, axis=0), reward, terminated, truncated, info
 
 
 # =========================================================
@@ -211,10 +203,10 @@ def make_discrete_action_set(action_dim: int):
     Z = np.zeros(action_dim, dtype=np.float32)
 
     # magnitudes suaves (evita 1.0 al inicio)
-    # a1 = 0.2
-    a1 = 0.4
-    # a2 = 0.6
-    a2 = 1.0  
+    a1 = 0.2
+    # a1 = 0.4
+    a2 = 0.6
+    # a2 = 1.0  
     # chat sugiere a1=0.25 y a2=0.35 ¿?
     
     actions = [Z]
@@ -237,7 +229,9 @@ def make_discrete_action_set_legprototype(action_dim: int):
     
     # Magnitudes (suaves para evitar inestabilidad al inicio)
     a = 0.25 
+    # a = 0.35
     b = 0.15 
+    # b = 0.2
 
     actions = []
 
@@ -270,7 +264,6 @@ def make_discrete_action_set_legprototype(action_dim: int):
 
     return np.stack(actions, axis=0)
     
-
 
 class DiscreteActionWrapper(gym.ActionWrapper):
     """

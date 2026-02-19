@@ -4,7 +4,15 @@ import numpy as np
 import os
 
 from src.dqn import QNetwork
-from src.envs import DiscreteActionWrapper, PixelStackWrapper, IgnoreAngleTerminationWrapper, ForwardAliveSmoothReward
+from src.envs import (
+    DiscreteActionWrapper, 
+    ForwardAliveSmoothReward, 
+    IgnoreAngleTerminationWrapper,
+    RGBObsWrapper
+)
+from utils import (
+    preprocess_rgb_batch_torch
+)
 
 # -----------------------------
 # Configuración
@@ -28,13 +36,17 @@ LAM_RW = 0.05
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
-def main():
-    # 1) Crear entorno base
+def make_eval_env():
     env = gym.make(ENV_ID, render_mode="rgb_array")
     env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-    env = IgnoreAngleTerminationWrapper(env)  # Ignoramos terminación por ángulo
+    env = IgnoreAngleTerminationWrapper(env)
     env = DiscreteActionWrapper(env)
-    env = PixelStackWrapper(env)
+    env = RGBObsWrapper(env)  
+    return env
+
+def main():
+    # 1) Crear entorno base
+    env = make_eval_env()
 
     # 2) Envolver con RecordVideo
     env = gym.wrappers.RecordVideo(
@@ -89,3 +101,54 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+    """obs, _ = env.reset(seed=42 + 10_000 + ep)   # obs: (H,W,3) uint8 (porque RGBObsWrapper)
+
+        # preprocess + stack inicial
+        frame = preprocess_rgb_batch_torch(obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84) uint8
+        state = frame.repeat(1, 4, 1, 1).contiguous()                                  # (1,4,84,84) uint8
+
+        ep_return = 0.0
+        step = 0
+
+        while True:
+            with torch.no_grad():
+                s = state.to(DEVICE, non_blocking=True).float().div_(255.0)  # (1,4,84,84) float
+                action = int(q_net(s).argmax(dim=1).item())
+
+            next_obs, reward, terminated, truncated, info = env.step(action)
+            ep_return += float(reward)
+            step += 1
+
+            # update stack
+            next_frame = preprocess_rgb_batch_torch(next_obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84)
+            state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
+
+            done = terminated or truncated
+            if done:
+                print("----EPISODE END----")
+                print("terminated:", terminated)
+                print("truncated:", truncated)
+                print("step:", step)
+
+                # info físico (si está disponible)
+                try:
+                    z = env.unwrapped.data.qpos[1]
+                    angle = env.unwrapped.data.qpos[2]
+                    print("torso height (z):", float(z))
+                    print("torso angle:", float(angle))
+                    print("is healthy:", bool(env.unwrapped.is_healthy))
+                except Exception:
+                    pass
+
+                break
+
+        print(f"Episode {ep} return: {ep_return:.2f}")
+
+    env.close()
+    print(f"Videos saved in: {VIDEO_DIR}")
+
+if __name__ == "__main__":
+    main()
+    """

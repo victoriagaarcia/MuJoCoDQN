@@ -1,9 +1,6 @@
-import random
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from collections import deque
 
 # QNetwork (CNN+MLP)
 class QNetwork(nn.Module): # Aproxima Q(s,a), es decir, el valor esperado si hago la acción a en el estado s
@@ -30,76 +27,85 @@ class QNetwork(nn.Module): # Aproxima Q(s,a), es decir, el valor esperado si hag
             nn.Linear(512, num_actions) # Cada componente es Q(s,a_i) para cada acción a_i del espacio de acciones discretas
         )
 
-    
     def forward(self, x):
         conv_out = self.encoder(x).view(x.size()[0], -1)
         return self.fc(conv_out)
     
-    
+
 # -----------------------------
 # Replay Buffer
 # -----------------------------
 class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) para luego muestrear aleatoriamente y romper la correlación temporal entre muestras
-    def __init__(self, capacity, obs_shape=(4,84,84), device="cpu"):
-        self.capacity = capacity
+    def __init__(self, capacity, obs_shape=(4,84,84), device="cuda"):
+        self.capacity = int(capacity)
         self.device = device
-
-        self.states = np.zeros((capacity, *obs_shape), dtype=np.uint8)
-        self.next_states = np.zeros((capacity, *obs_shape), dtype=np.uint8)
-
-        self.actions = np.zeros((capacity,), dtype=np.int64)
-        self.rewards = np.zeros((capacity,), dtype=np.float32)
-        self.dones = np.zeros((capacity,), dtype=np.float32)
+        
+        # CPU pinned
+        self.states      = torch.empty((capacity, *obs_shape), dtype=torch.uint8,  pin_memory=True)
+        self.next_states = torch.empty((capacity, *obs_shape), dtype=torch.uint8,  pin_memory=True)
+        self.actions     = torch.empty((capacity,),            dtype=torch.int64,  pin_memory=True)
+        self.rewards     = torch.empty((capacity,),            dtype=torch.float32,pin_memory=True)
+        self.dones       = torch.empty((capacity,),            dtype=torch.float32,pin_memory=True)
 
         self.idx = 0
         self.size = 0
 
     def push(self, state, action, reward, next_state, done):
-        # self.buffer.append((state, action, reward, next_state, done))
-        self.states[self.idx] = state.astype(np.uint8)
-        self.next_states[self.idx] = next_state.astype(np.uint8)
-        self.actions[self.idx] = int(action)
-        self.rewards[self.idx] = float(reward)
-        self.dones[self.idx] = float(done)
+        # state/next_state: torch uint8 (4,84,84) o np.uint8 compatible
+
+        i = self.idx
+        if isinstance(state, np.ndarray):
+            state = torch.from_numpy(state)
+        if isinstance(next_state, np.ndarray):
+            next_state = torch.from_numpy(next_state)
+
+        self.states[i].copy_(state.to(dtype=torch.uint8, device="cpu"))
+        self.next_states[i].copy_(next_state.to(dtype=torch.uint8, device="cpu"))
+
+        self.actions[i] = int(action)
+        self.rewards[i] = float(reward)
+        self.dones[i]   = float(done)
 
         self.idx = (self.idx + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
     
     def push_batch(self, states, actions, rewards, next_states, dones):
-        batch_size = states.shape[0]
-        idxs = (self.idx + np.arange(batch_size)) % self.capacity
+        """
+        states/next_states: torch uint8 (B,4,84,84) en CPU (ideal) o numpy.
+        actions: np.int64 o torch.int64 (B,)
+        rewards: np.float32 o torch.float32 (B,)
+        dones:   np.bool/float o torch (B,)
+        """
+        if isinstance(states, np.ndarray):
+            states = torch.from_numpy(states)
+        if isinstance(next_states, np.ndarray):
+            next_states = torch.from_numpy(next_states)
 
-        self.states[idxs] = states.astype(np.uint8)
-        self.next_states[idxs] = next_states.astype(np.uint8)
-        self.actions[idxs] = actions.astype(np.int64, copy=False)
-        self.rewards[idxs] = rewards
-        self.dones[idxs] = dones
+        b = states.shape[0]
+        idxs = (self.idx + torch.arange(b)) % self.capacity
 
-        self.idx = (self.idx + batch_size) % self.capacity
-        self.size = min(self.size + batch_size, self.capacity)
+        # aseguramos CPU + uint8
+        self.states[idxs].copy_(states.to(dtype=torch.uint8, device="cpu"))
+        self.next_states[idxs].copy_(next_states.to(dtype=torch.uint8, device="cpu"))
+
+        self.actions[idxs] = torch.as_tensor(actions, dtype=torch.int64)
+        self.rewards[idxs] = torch.as_tensor(rewards, dtype=torch.float32)
+        # dones lo guardo float32 para target (1-done)
+        self.dones[idxs]   = torch.as_tensor(dones, dtype=torch.float32)
+
+        self.idx = int((self.idx + b) % self.capacity)
+        self.size = int(min(self.size + b, self.capacity))
 
     def sample(self, batch_size):
-        # idxs = np.random.randint(0, len(self.buffer), size=batch_size)
-        # states, actions, rewards, next_states, dones = zip(*(self.buffer[i] for i in idxs))
+        idxs = torch.randint(0, self.size, (batch_size,), device="cpu")
 
-        # return (
-        #     torch.from_numpy(np.stack(states)).float(),
-        #     torch.tensor(actions, dtype=torch.long),
-        #     torch.tensor(rewards, dtype=torch.float32),
-        #     torch.from_numpy(np.stack(next_states)).float(),
-        #     torch.tensor(dones, dtype=torch.float32),
-        # )
-
-        idxs = np.random.randint(0, self.size, size=batch_size)
-
-        return (
-            torch.from_numpy(self.states[idxs]).float().to(self.device) / 255.0, # Normalizamos a [0,1]
-            torch.from_numpy(self.actions[idxs]).long().to(self.device),
-            torch.from_numpy(self.rewards[idxs]).float().to(self.device),
-            torch.from_numpy(self.next_states[idxs]).float().to(self.device) / 255.0,
-            torch.from_numpy(self.dones[idxs]).float().to(self.device),
-        )
+        # Copia no-bloqueante a GPU + normalización a [0,1]
+        s  = self.states[idxs].to(self.device, non_blocking=True).float().div_(255.0)
+        ns = self.next_states[idxs].to(self.device, non_blocking=True).float().div_(255.0)
+        a  = self.actions[idxs].to(self.device, non_blocking=True)
+        r  = self.rewards[idxs].to(self.device, non_blocking=True)
+        d  = self.dones[idxs].to(self.device, non_blocking=True)
+        return s, a, r, ns, d
 
     def __len__(self):
-        # return len(self.buffer)
         return self.size
