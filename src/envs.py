@@ -16,6 +16,28 @@ def preprocess(frame, size=84):
     return frame
 
 
+class ImageObsWrapper(gym.ObservationWrapper):
+    """
+    Convierte la observación en un frame RGB preprocesado
+    Shape final: (84, 84)
+    """
+    def __init__(self, env, size=84):
+        super().__init__(env)
+        self.size = size
+        self.observation_space = gym.spaces.Box(
+            low=0.0,
+            high=1.0,
+            shape=(size, size, 1),
+            dtype=np.float32,
+        )
+
+    def observation(self, obs):
+        frame = self.env.render() # Obtiene el frame RGB actual
+        p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
+        p = p[..., None] # Agrega canal de color (H, W) -> (H, W, 1) para hacer luego un stack
+        return p
+
+
 class IgnoreAngleTerminationWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
@@ -106,68 +128,45 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         return obs, new_reward, terminated, truncated, info
 
 
-class PixelObsWrapper(gym.Wrapper):
-    """
-    Devuelve 1 frame por step, luego el train hace transpose + frame-stack en batch.
-    Obs: (H, W, 3) uint8
-    """
-    def __init__(self, env, size=84):
-        super().__init__(env)
-        self.size = size
-        self.observation_space = gym.spaces.Box(
-            low=0, high=255, shape=(size, size, 3), dtype=np.uint8
-        )
 
-    def _get_frame(self):
-        frame = self.env.render()  # rgb_array
-        frame = cv2.resize(frame, (self.size, self.size), interpolation=cv2.INTER_AREA)
-        return frame.astype(np.uint8)
 
-    def reset(self, **kwargs):
-        self.env.reset(**kwargs)
-        return self._get_frame(), {}
+# class PixelStackWrapper(gym.Wrapper):
+#     """
+#     Convierte la observación en un stack de K frames preprocesados
+#     Shape final: (K, 84, 84)
+#     """
+#     def __init__(self, env, k=4, size=84):
+#         super().__init__(env)
+#         self.k = k
+#         self.size = size
+#         self.frames = deque(maxlen=k)
 
-    def step(self, action):
-        _, reward, terminated, truncated, info = self.env.step(action)
-        return self._get_frame(), reward, terminated, truncated, info
+#         self.observation_space = gym.spaces.Box(
+#             low=0.0,
+#             high=1.0,
+#             shape=(k, size, size),
+#             dtype=np.float32,
+#         )
 
-class PixelStackWrapper(gym.Wrapper):
-    """
-    Convierte la observación en un stack de K frames preprocesados
-    Shape final: (K, 84, 84)
-    """
-    def __init__(self, env, k=4, size=84):
-        super().__init__(env)
-        self.k = k
-        self.size = size
-        self.frames = deque(maxlen=k)
+#     def reset(self, **kwargs):
+#         _, info = self.env.reset(**kwargs)
+#         frame = self.env.render() # Obtiene el frame RGB actual
+#         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
 
-        self.observation_space = gym.spaces.Box(
-            low=0.0,
-            high=1.0,
-            shape=(k, size, size),
-            dtype=np.float32,
-        )
+#         self.frames.clear()
+#         for _ in range(self.k):
+#             self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
 
-    def reset(self, **kwargs):
-        _, info = self.env.reset(**kwargs)
-        frame = self.env.render() # Obtiene el frame RGB actual
-        p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
+#         return np.stack(self.frames, axis=0), info
 
-        self.frames.clear()
-        for _ in range(self.k):
-            self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
+#     def step(self, action):
+#         obs, reward, terminated, truncated, info = self.env.step(action)
+#         frame = self.env.render()
+#         p = preprocess(frame, self.size)
 
-        return np.stack(self.frames, axis=0), info
+#         self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
 
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        frame = self.env.render()
-        p = preprocess(frame, self.size)
-
-        self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
-
-        return np.stack(self.frames, axis=0), reward, terminated, truncated, info
+#         return np.stack(self.frames, axis=0), reward, terminated, truncated, info
 
 
 # =========================================================

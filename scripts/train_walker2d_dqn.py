@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
 
 from src.dqn import QNetwork, ReplayBuffer
-from src.envs import DiscreteActionWrapper, PixelStackWrapper, ForwardAliveSmoothReward, IgnoreAngleTerminationWrapper, PixelObsWrapper
+from src.envs import DiscreteActionWrapper, ForwardAliveSmoothReward, IgnoreAngleTerminationWrapper, ImageObsWrapper
 
 # -----------------------------
 # Hiperparámetros
@@ -84,9 +84,17 @@ def make_env(rank:int):
         env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         # env = PixelStackWrapper(env)
-        env = PixelObsWrapper(env)
+        env = ImageObsWrapper(env)
         return env
     return _thunk
+
+def transpose_obs(obs):
+    # Transpone las imágenes de (H, W, C) a (C, H, W) para que sean compatibles con las convoluciones de PyTorch
+    return np.transpose(obs, (2, 0, 1))
+
+def transpose_obs_batch(obs_batch):
+    # Transpone un batch de observaciones de (B, H, W, C) a (B, C, H, W)
+    return np.transpose(obs_batch, (0, 3, 1, 2))
 
 def main():
     np.random.seed(SEED)
@@ -115,9 +123,14 @@ def main():
     buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device=DEVICE) 
 
     seeds = [SEED + i for i in range(NUM_ENVS)] # Semillas diferentes para cada entorno paralelo para mayor diversidad de experiencias
-    state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
+    # state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
     # episode_reward = 0.0
     # n_episodes = 0
+
+    # ¡!
+    obs, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (batch de stacks de frames)
+    obs_chw = transpose_obs_batch(obs) # Transponemos las observaciones al formato (B, C, H, W) 
+    state = np.repeat(obs_chw, 4, axis=1) # Creamos el stack inicial de 4 frames repitiendo la misma observación 4 veces
 
     episode_rewards = np.zeros(NUM_ENVS, dtype=np.float32)
     n_episodes = 0
@@ -136,46 +149,75 @@ def main():
         eps = epsilon(global_step) # Calculamos el valor de epsilon para esta etapa del entrenamiento (decay lineal)
 
         # acciones aleatorias por entorno (vector)
-        actions = np.empty((NUM_ENVS,), dtype=np.int64)
+        # actions = np.empty((NUM_ENVS,), dtype=np.int64)
+        # rand_mask = np.random.rand(NUM_ENVS) < eps # Máscara booleana para decidir qué entornos toman acción aleatoria
+
+        # n_rand = int(rand_mask.sum())
+        # if n_rand > 0:
+        #     actions[rand_mask] = np.array(
+        #         [env.single_action_space.sample() for _ in range(n_rand)],
+        #         dtype=np.int64
+        #     ) # Acción aleatoria para los entornos seleccionados por la máscara
+        
+        # # Decisión exploración vs explotación según epsilon-greedy
+        # if (~rand_mask).any(): # Si hay algún entorno que no toma acción aleatoria, calculamos la acción con la red Q para esos entornos
+        #     with torch.no_grad():
+        #         s = torch.tensor(state[~rand_mask], dtype=torch.float32).to(DEVICE)
+        #         greedy = q_net(s).argmax(dim=1).cpu().numpy() # Acciones con mayor valor Q según la red online para los entornos que no toman acción aleatoria
+        #     actions[~rand_mask] = greedy
+
+        # Épsilon-greedy vectorizado: 
+        with torch.no_grad():
+            s = torch.tensor(state, dtype=torch.float32).to(DEVICE)
+            greedy_actions = q_net(s).argmax(dim=1).cpu().numpy() # Acciones con mayor valor Q según la red online para cada entorno
+        
         rand_mask = np.random.rand(NUM_ENVS) < eps # Máscara booleana para decidir qué entornos toman acción aleatoria
-        
-        n_rand = int(rand_mask.sum())
-        if n_rand > 0:
-            actions[rand_mask] = np.array(
-                [env.single_action_space.sample() for _ in range(n_rand)],
-                dtype=np.int64
-            ) # Acción aleatoria para los entornos seleccionados por la máscara
-        
-        # Decisión exploración vs explotación según epsilon-greedy
-        if (~rand_mask).any(): # Si hay algún entorno que no toma acción aleatoria, calculamos la acción con la red Q para esos entornos
-            with torch.no_grad():
-                s = torch.tensor(state[~rand_mask], dtype=torch.float32).to(DEVICE)
-                greedy = q_net(s).argmax(dim=1).cpu().numpy() # Acciones con mayor valor Q según la red online para los entornos que no toman acción aleatoria
-            actions[~rand_mask] = greedy
+        random_actions = np.random.randint(0, n_actions, size=NUM_ENVS) # Acciones aleatorias para todos los entornos
+        actions = np.where(rand_mask, random_actions, greedy_actions) # Seleccionamos la acción aleatoria o la acción greedy según la máscara de exploración
         
         # Ejecutamos la acción en el entorno y obtenemos la siguiente transición (s, a, r, s', done)
-        next_state, reward, terminated, truncated, info = env.step(actions)
-        done = np.logical_or(terminated, truncated) 
+        # next_state, reward, terminated, truncated, info = env.step(actions)
+        # done = np.logical_or(terminated, truncated) 
+
+        # Ejecutamos la acción en el entorno vectorizado
+        next_obs, rewards, terminated, truncated, info = env.step(actions)
+        done = np.logical_or(terminated, truncated)
+        next_obs_chw = transpose_obs_batch(next_obs) # Transponemos las siguientes observaciones al formato (B, C, H, W)
+        next_state = np.concatenate([state[:, 1:, :, :], next_obs_chw], axis=1) # Actualizamos el stack de frames desplazando los frames anteriores y añadiendo el nuevo frame al final del stack
 
         if isinstance(info, dict) and "final_observation" in info:
             final_obs = info["final_observation"]
             final_mask = info.get("_final_observation", None)
-            if final_mask is None:
-                final_mask = done
-            for i in range(NUM_ENVS):
-                if bool(final_mask[i]) and bool(done[i]):
-                    # Reemplazamos el siguiente estado por la observación final para los entornos que han terminado el episodio 
-                    # (esto es importante para que el agente aprenda correctamente a partir de la transición final)
-                    next_state[i] = final_obs[i] 
+            # Esto es si no hacemos stack en train!
+            # if final_mask is None:
+            #     final_mask = done
+            # for i in range(NUM_ENVS):
+            #     if bool(final_mask[i]) and bool(done[i]):
+            #         # Reemplazamos el siguiente estado por la observación final para los entornos que han terminado el episodio 
+            #         # (esto es importante para que el agente aprenda correctamente a partir de la transición final)
+            #         next_state[i] = final_obs[i] 
+            idx = np.where(final_mask & done)[0]
+            if idx.size > 0:
+                terminal = np.transpose(final_obs[idx], (0, 3, 1, 2)) # Transponemos las observaciones finales al formato (B, C, H, W)
+                next_state[idx] = np.concatenate([state[idx, 1:, :, :], terminal], axis=1) # Actualizamos el stack de frames para los entornos que han terminado el episodio con la observación final
         
-        for i in range(NUM_ENVS):
-            buffer.push(
-                state[i],
-                int(actions[i]),
-                float(reward[i]),
-                next_state[i],
-                bool(done[i])
-            )
+        # for i in range(NUM_ENVS):
+        #     buffer.push(
+        #         state[i],
+        #         int(actions[i]),
+        #         float(reward[i]),
+        #         next_state[i],
+        #         bool(done[i])
+        #     )
+
+        # Ahora pusheamos todo el batch
+        buffer.push_batch(
+            states=state,
+            actions=actions,
+            rewards=rewards,
+            next_states=next_state,
+            dones=done
+        )
         
         # # Guardamos la transición en el replay buffer
         # buffer.push(state, actions, reward, next_state, done)
@@ -235,6 +277,7 @@ def main():
         if (global_step % 250_000) < NUM_ENVS and global_step > 0 or global_step >= TOTAL_STEPS - NUM_ENVS:
             
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{global_step}.pt")
+            """
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
             q_net.eval()
             test_rewards = []
@@ -244,7 +287,8 @@ def main():
             eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
             # eval_env = PixelStackWrapper(eval_env)
-            eval_env = PixelObsWrapper(eval_env)
+            # eval_env = PixelObsWrapper(eval_env)
+            eval_env = ImageObsWrapper(eval_env)
 
             for ep in tqdm(range(10)):
                 test_state, _ = eval_env.reset(seed=SEED + 10_000 + ep) # Semilla diferente para el test de evaluación para mayor diversidad
@@ -260,6 +304,8 @@ def main():
                 test_rewards.append(test_episode_reward)
             avg_test_reward = np.mean(test_rewards)
             eval_env.close()
+            """
+            avg_test_reward = np.nan
     
             print(f"Checkpoint saved at step {global_step}, average test reward over 10 episodes: {avg_test_reward}")
             writer.add_scalar("avg_test_reward", avg_test_reward, global_step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)

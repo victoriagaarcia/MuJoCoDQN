@@ -53,7 +53,6 @@ class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) p
         self.idx = 0
         self.size = 0
 
-
     def push(self, state, action, reward, next_state, done):
         # self.buffer.append((state, action, reward, next_state, done))
         self.states[self.idx] = state
@@ -64,6 +63,19 @@ class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) p
 
         self.idx = (self.idx + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
+    
+    def push_batch(self, states, actions, rewards, next_states, dones):
+        batch_size = states.shape[0]
+        idxs = (self.idx + np.arange(batch_size)) % self.capacity
+
+        self.states[idxs] = states
+        self.next_states[idxs] = next_states
+        self.actions[idxs] = actions
+        self.rewards[idxs] = rewards
+        self.dones[idxs] = dones
+
+        self.idx = (self.idx + batch_size) % self.capacity
+        self.size = min(self.size + batch_size, self.capacity)
 
     def sample(self, batch_size):
         # idxs = np.random.randint(0, len(self.buffer), size=batch_size)
