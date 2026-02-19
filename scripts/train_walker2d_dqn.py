@@ -18,7 +18,7 @@ from src.envs import DiscreteActionWrapper, PixelStackWrapper, ForwardAliveSmoot
 
 
 ENV_ID = "Walker2d-v5"
-TOTAL_STEPS = 6_000_000 # Número total de pasos de interacción con el entorno (no episodios)
+TOTAL_STEPS = 8_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 500_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
@@ -29,7 +29,7 @@ START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a en
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
 # EPS_START = 0.1
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_DECAY = 3_000_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
+EPS_DECAY = 4_000_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 START_DECAY = 50_000 # Número de pasos antes de empezar a decaer epsilon 
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
@@ -54,8 +54,8 @@ MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step3000000.pt"  # ← ajusta esto
 
 def epsilon(step):
-   # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
-   return max(EPS_END, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY)) # Decay lineal con fase inicial de epsilon constante
+    # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
+    return max(EPS_END, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY)) # Decay lineal con fase inicial de epsilon constante
 
 def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
     # Convertimos el diccionario en un DataFrame de una sola fila
@@ -257,6 +257,7 @@ def main():
                         break
                 test_rewards.append(test_episode_reward)
             avg_test_reward = np.mean(test_rewards)
+            eval_env.close()
     
             print(f"Checkpoint saved at step {global_step}, average test reward over 10 episodes: {avg_test_reward}")
             writer.add_scalar("avg_test_reward", avg_test_reward, global_step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
