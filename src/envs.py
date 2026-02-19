@@ -128,8 +128,6 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         return obs, new_reward, terminated, truncated, info
 
 
-
-
 # class PixelStackWrapper(gym.Wrapper):
 #     """
 #     Convierte la observación en un stack de K frames preprocesados

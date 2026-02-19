@@ -287,18 +287,24 @@ def main():
             eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
             # eval_env = PixelStackWrapper(eval_env)
-            # eval_env = PixelObsWrapper(eval_env)
             eval_env = ImageObsWrapper(eval_env)
 
             for ep in tqdm(range(10)):
                 test_state, _ = eval_env.reset(seed=SEED + 10_000 + ep) # Semilla diferente para el test de evaluación para mayor diversidad
                 test_episode_reward = 0.0
+                # ¡!
+                transposed_state = np.transpose(test_state, (2, 0, 1)) # Transponemos la observación al formato (C, H, W) para que sea compatible con la red Q
+                test_state = np.repeat(transposed_state, 4, axis=0) # Creamos el stack inicial de 4 frames repitiendo la misma observación 4 veces
                 while True:
                     with torch.no_grad():
                         s = torch.tensor(test_state, dtype=torch.float32).unsqueeze(0).to(DEVICE)
                         action = q_net(s).argmax(dim=1).item()
-                    test_state, reward, terminated, truncated, _ = eval_env.step(action)
+                    next_obs, reward, terminated, truncated, _ = eval_env.step(action) # era test_state antes de next_obs
+                    # ¡!
+                    transposed_state = np.transpose(next_obs, (2, 0, 1)) # Transponemos la observación al formato (C, H, W) para que sea compatible con la red Q
+                    test_state = np.concatenate([test_state[1:, :, :], transposed_state], axis=0) # Actualizamos el stack de frames desplazando los frames anteriores y añadiendo el nuevo frame al final del stack
                     test_episode_reward += reward
+                    
                     if terminated or truncated:
                         break
                 test_rewards.append(test_episode_reward)
