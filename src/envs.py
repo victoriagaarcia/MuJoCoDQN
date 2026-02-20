@@ -14,6 +14,7 @@ class RGBObsWrapper(gym.ObservationWrapper):
     """
     def __init__(self, env):
         super().__init__(env)
+        self.env.reset()
         frame = self.env.render() # Renderizamos un frame para obtener su tamaño original
         h, w, c = frame.shape
         
@@ -79,8 +80,8 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         if forward is None:
             forward = vx
         if ctrl is None:
-            ctrl = 0.0
-            # ctrl = 0.001 * float(np.sum(np.square(a)))
+            # ctrl = 0.0
+            ctrl = 0.001 * float(np.sum(np.square(a)))
 
         # Healthy: usamos el criterio interno del entorno
         healthy = 1.0 if getattr(self.env.unwrapped, "is_healthy", True) else 0.0
@@ -101,8 +102,8 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         self.prev_action = a
 
         new_reward = (
-            self.alpha * 1.0 * (vx > 0.0)
-            # self.alpha * max(0.0, vx)
+            # self.alpha * 1.0 * (vx > 0.0)
+            self.alpha * max(0.0, vx)
             + self.beta * float(healthy)
             - self.gamma * float(ctrl)
             - self.delta * float(backward_pen)
@@ -228,10 +229,10 @@ def make_discrete_action_set_legprototype(action_dim: int):
     Z = np.zeros(action_dim, dtype=np.float32)
     
     # Magnitudes (suaves para evitar inestabilidad al inicio)
-    a = 0.25 
-    # a = 0.35
-    b = 0.15 
-    # b = 0.2
+    # a = 0.25 
+    a = 0.35
+    # b = 0.15 
+    b = 0.2
 
     actions = []
 
@@ -273,8 +274,8 @@ class DiscreteActionWrapper(gym.ActionWrapper):
         super().__init__(env)
         assert isinstance(env.action_space, gym.spaces.Box) # Comprobamos que el espacio de acciones original es continuo
 
-        self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
-        # self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
+        # self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
+        self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
         self.action_space = gym.spaces.Discrete(self._actions.shape[0]) # Redefinimos el espacio de acciones a discreto con el número de acciones prototipo
 
     def action(self, act_idx):

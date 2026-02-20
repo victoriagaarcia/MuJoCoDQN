@@ -2,12 +2,13 @@ import os
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 def epsilon(step, eps_end, eps_start, start_decay, eps_decay):
     # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
     return max(eps_end, eps_start - (max(0, step - start_decay) / eps_decay)) # Decay lineal con fase inicial de epsilon constante
 
-@torch.no.grad()
+@torch.no_grad()
 def preprocess_rgb_batch_torch(rgb_bhwc: np.ndarray, out_size=84, device="cpu") -> torch.Tensor:
     """
     rgb_bhwc: (B,H,W,3) uint8

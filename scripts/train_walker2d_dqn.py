@@ -17,7 +17,7 @@ from src.envs import (
     IgnoreAngleTerminationWrapper,
     RGBObsWrapper
 )
-from utils import (
+from .utils import (
     epsilon,
     preprocess_rgb_batch_torch,
     should_update_target,
@@ -55,7 +55,7 @@ DELTA_RW = 1.0
 LAM_RW = 0.05
 
 # Train con saltos
-TRAIN_FREQ = 4_000 # Como hay 4 envs, poner 4 es como hacer 1 update por iteración
+TRAIN_FREQ = 4 # Como hay 4 envs, poner 4 es como hacer 1 update por iteración
 LOG_EVERY = 5_000
 CHECKPOINT_EVERY = 250_000
 
