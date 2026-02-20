@@ -128,6 +128,44 @@ class ForwardAliveSmoothReward(gym.Wrapper):
 #     """
 #     def __init__(self, env, k=4, size=84):
 #         super().__init__(env)
+# class PixelStackWrapper(gym.Wrapper):
+#     """
+#     Convierte la observación en un stack de K frames preprocesados
+#     Shape final: (K, 84, 84)
+#     """
+#     def __init__(self, env, k=4, size=84):
+#         super().__init__(env)
+#         self.k = k
+#         self.size = size
+#         self.frames = deque(maxlen=k)
+
+#         self.observation_space = gym.spaces.Box(
+#             low=0.0,
+#             high=1.0,
+#             shape=(k, size, size),
+#             dtype=np.float32,
+#         )
+
+#     def reset(self, **kwargs):
+#         _, info = self.env.reset(**kwargs)
+#         frame = self.env.render() # Obtiene el frame RGB actual
+#         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
+
+#         self.frames.clear()
+#         for _ in range(self.k):
+#             self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
+
+#         return np.stack(self.frames, axis=0), info
+
+#     def step(self, action):
+#         obs, reward, terminated, truncated, info = self.env.step(action)
+#         frame = self.env.render()
+#         p = preprocess(frame, self.size)
+
+#         self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
+
+#         return np.stack(self.frames, axis=0), reward, terminated, truncated, info
+
 #         self.k = k
 #         self.size = size
 #         self.frames = deque(maxlen=k)
@@ -204,10 +242,10 @@ def make_discrete_action_set(action_dim: int):
     Z = np.zeros(action_dim, dtype=np.float32)
 
     # magnitudes suaves (evita 1.0 al inicio)
-    a1 = 0.2
-    # a1 = 0.4
-    a2 = 0.6
-    # a2 = 1.0  
+    # a1 = 0.2
+    a1 = 0.4
+    # a2 = 0.6
+    a2 = 1.0  
     # chat sugiere a1=0.25 y a2=0.35 ¿?
     
     actions = [Z]
@@ -230,7 +268,7 @@ def make_discrete_action_set_legprototype(action_dim: int):
     
     # Magnitudes (suaves para evitar inestabilidad al inicio)
     # a = 0.25 
-    a = 0.35
+    a = 0.45
     # b = 0.15 
     b = 0.2
 

@@ -36,16 +36,16 @@ class QNetwork(nn.Module): # Aproxima Q(s,a), es decir, el valor esperado si hag
 # Replay Buffer
 # -----------------------------
 class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) para luego muestrear aleatoriamente y romper la correlación temporal entre muestras
-    def __init__(self, capacity, obs_shape=(4,84,84), device="cpu"):
+    def __init__(self, capacity, obs_shape=(4,84,84), device="cuda"):
         self.capacity = int(capacity)
         self.device = device
         
         # CPU pinned
-        self.states      = torch.empty((capacity, *obs_shape), dtype=torch.uint8,  pin_memory=True)
-        self.next_states = torch.empty((capacity, *obs_shape), dtype=torch.uint8,  pin_memory=True)
-        self.actions     = torch.empty((capacity,),            dtype=torch.int64,  pin_memory=True)
-        self.rewards     = torch.empty((capacity,),            dtype=torch.float32,pin_memory=True)
-        self.dones       = torch.empty((capacity,),            dtype=torch.float32,pin_memory=True)
+        self.states      = torch.empty((capacity, *obs_shape), dtype=torch.uint8,  pin_memory=False, device="cpu")
+        self.actions     = torch.empty((capacity,),            dtype=torch.int64,  pin_memory=False, device="cpu")
+        self.next_states = torch.empty((capacity, *obs_shape), dtype=torch.uint8,  pin_memory=False, device="cpu")
+        self.rewards     = torch.empty((capacity,),            dtype=torch.float32,pin_memory=False, device="cpu")
+        self.dones       = torch.empty((capacity,),            dtype=torch.float32,pin_memory=False, device="cpu")
 
         self.idx = 0
         self.size = 0

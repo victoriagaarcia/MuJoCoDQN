@@ -71,7 +71,7 @@ EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resul
 def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array")
-        env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+        # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
         env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         env = RGBObsWrapper(env)
@@ -95,7 +95,7 @@ def main():
     target_net.load_state_dict(q_net.state_dict()) # Inicializamos la red objetivo con los mismos pesos que la red online
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
-    buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device="cpu") 
+    buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device=DEVICE) 
 
     seeds = [SEED + i for i in range(NUM_ENVS)] # Semillas diferentes para cada entorno paralelo para mayor diversidad de experiencias
     # state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
@@ -170,8 +170,8 @@ def main():
         if np.any(done):
             done_idx = np.where(done)[0]
             for i in done_idx:
-                writer.add_scalar("episode/return", episode_rewards[i], global_step)
-                writer.add_scalar("episode/length", episode_lengths[i], global_step)
+                writer.add_scalar("episode_reward", episode_rewards[i], global_step)
+                writer.add_scalar("episode_length", episode_lengths[i], global_step)
                 n_episodes += 1
                 episode_rewards[i] = 0.0
                 episode_lengths[i] = 0
@@ -196,9 +196,9 @@ def main():
             updates_done += 1
 
             if global_step % LOG_EVERY < NUM_ENVS:
-                writer.add_scalar("train/loss", loss.item(), global_step)
-                writer.add_scalar("train/epsilon", eps, global_step)
-                writer.add_scalar("train/updates_done", updates_done, global_step)
+                writer.add_scalar("loss", loss.item(), global_step)
+                writer.add_scalar("epsilon", eps, global_step)
+                writer.add_scalar("updates_done", updates_done, global_step)
 
         if should_update_target(global_step, TARGET_UPDATE, NUM_ENVS):
             target_net.load_state_dict(q_net.state_dict())
@@ -215,15 +215,16 @@ def main():
             test_rewards = []
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array")
-            eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+            # eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
             eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
             eval_env = RGBObsWrapper(eval_env)
 
             for ep in tqdm(range(10)):
-                obs_eval, _ = eval_env.reset(seed=SEED + 10_000 + ep) # Semilla diferente para el test de evaluación para mayor diversidad
-
-                frame_eval = preprocess_rgb_batch_torch(obs_eval[None, ...], out_size=84, device="cpu")
+                obs_eval, _ = eval_env.reset() # Semilla diferente para el test de evaluación para mayor diversidad
+                
+                obs_eval_np = np.ascontiguousarray(obs_eval)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
+                frame_eval = preprocess_rgb_batch_torch(obs_eval_np[None, ...], out_size=84, device="cpu")
                 state_eval = frame_eval.repeat(1, 4, 1, 1).contiguous()
 
                 test_episode_reward = 0.0
@@ -235,8 +236,9 @@ def main():
                     next_obs, reward, terminated, truncated, infos = eval_env.step(action) # era test_state antes de next_obs
                     test_episode_reward += float(reward)
                     
+                    next_obs_eval_np = np.ascontiguousarray(next_obs)
                     # preprocess next frame + update stack
-                    next_frame = preprocess_rgb_batch_torch(next_obs[None, ...], out_size=84, device="cpu")
+                    next_frame = preprocess_rgb_batch_torch(next_obs_eval_np[None, ...], out_size=84, device="cpu")
                     state_eval = torch.cat([state_eval[:, 1:], next_frame], dim=1).contiguous()
                     
                     if terminated or truncated:

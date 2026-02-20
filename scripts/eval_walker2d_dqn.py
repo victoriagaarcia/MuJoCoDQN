@@ -10,7 +10,7 @@ from src.envs import (
     IgnoreAngleTerminationWrapper,
     RGBObsWrapper
 )
-from utils import (
+from .utils import (
     preprocess_rgb_batch_torch
 )
 
@@ -20,7 +20,7 @@ from utils import (
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb19_08_08_43"
+MODEL_DATE = "Feb20_10_17_11"
 CHECKPOINT_STEP = "250000"
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
 MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{CHECKPOINT_STEP}.pt"  # ← ajusta esto
@@ -64,48 +64,44 @@ def main():
 
     # 4) Ejecutar episodios (política greedy)
     for ep in range(N_EPISODES):
-        state, _ = env.reset()
-        done = False
-        ep_return = 0.0
-        step = 0
-        
-        while not done:
-            with torch.no_grad():
-                s = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-                action = q_net(s).argmax(dim=1).item()
+#        state, _ = env.reset()
+#        done = False
+#        ep_return = 0.0
+#        step = 0
+#        
+#        while not done:
+#            with torch.no_grad():
+#                s = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+#                action = q_net(s).argmax(dim=1).item()
+#
+#            step += 1
+#            state, reward, terminated, truncated, info = env.step(action)
+#            
+#            if terminated or truncated:
+#                print("----EPISODE END----")
+#                print("terminated:", terminated)
+#                print("truncated:", truncated)
+#                print("step:", step)
+#
+#                z =  env.unwrapped.data.qpos[1]
+#                angle = env.unwrapped.data.qpos[2]
+#                
+#                print("torso height (z):", z)
+#                print("torso angle:", angle)
+#                print("is healthy:", env.unwrapped.is_healthy)
+#                
+#            done = terminated or truncated
+#            ep_return += reward
+#
+#        print(f"Episode {ep} return: {ep_return:.2f}")
+#
+#    env.close()
+#    print(f"Videos saved in: {VIDEO_DIR}")
 
-            step += 1
-            state, reward, terminated, truncated, info = env.step(action)
-            
-            if terminated or truncated:
-                print("----EPISODE END----")
-                print("terminated:", terminated)
-                print("truncated:", truncated)
-                print("step:", step)
-
-                z =  env.unwrapped.data.qpos[1]
-                angle = env.unwrapped.data.qpos[2]
-                
-                print("torso height (z):", z)
-                print("torso angle:", angle)
-                print("is healthy:", env.unwrapped.is_healthy)
-                
-            done = terminated or truncated
-            ep_return += reward
-
-        print(f"Episode {ep} return: {ep_return:.2f}")
-
-    env.close()
-    print(f"Videos saved in: {VIDEO_DIR}")
-
-
-if __name__ == "__main__":
-    main()
-
-
-    """obs, _ = env.reset(seed=42 + 10_000 + ep)   # obs: (H,W,3) uint8 (porque RGBObsWrapper)
+        obs, _ = env.reset(seed=42 + 10_000 + ep)   # obs: (H,W,3) uint8 (porque RGBObsWrapper)
 
         # preprocess + stack inicial
+        obs = np.ascontiguousarray(obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
         frame = preprocess_rgb_batch_torch(obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84) uint8
         state = frame.repeat(1, 4, 1, 1).contiguous()                                  # (1,4,84,84) uint8
 
@@ -122,6 +118,7 @@ if __name__ == "__main__":
             step += 1
 
             # update stack
+            next_obs = np.ascontiguousarray(next_obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
             next_frame = preprocess_rgb_batch_torch(next_obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84)
             state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
 
@@ -149,6 +146,6 @@ if __name__ == "__main__":
     env.close()
     print(f"Videos saved in: {VIDEO_DIR}")
 
+
 if __name__ == "__main__":
     main()
-    """
