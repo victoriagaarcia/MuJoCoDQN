@@ -42,9 +42,12 @@ class IgnoreAngleTerminationWrapper(gym.Wrapper):
 
         # Rango saludable original de altura
         healthy_z_range = self.env.unwrapped._healthy_z_range
+        
+        # Bajar el umbral inferior de altura para permitir más flexibilidad 
+        lower_z = healthy_z_range[0] * 0.8  # por ejemplo, un 20% más bajo
 
         # NUEVA condición: solo depende de altura
-        healthy_z = healthy_z_range[0] < z < healthy_z_range[1]
+        healthy_z = lower_z < z < healthy_z_range[1]
 
         # Ignoramos condición del ángulo
         terminated = not healthy_z
@@ -242,10 +245,11 @@ def make_discrete_action_set(action_dim: int):
     Z = np.zeros(action_dim, dtype=np.float32)
 
     # magnitudes suaves (evita 1.0 al inicio)
-    # a1 = 0.2
-    a1 = 0.4
-    # a2 = 0.6
-    a2 = 1.0  
+    a1 = 0.25
+    # a1 = 0.4
+    
+    a2 = 0.85
+    # a2 = 1.0  
     # chat sugiere a1=0.25 y a2=0.35 ¿?
     
     actions = [Z]
@@ -312,8 +316,8 @@ class DiscreteActionWrapper(gym.ActionWrapper):
         super().__init__(env)
         assert isinstance(env.action_space, gym.spaces.Box) # Comprobamos que el espacio de acciones original es continuo
 
-        # self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
-        self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
+        self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
+        # self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
         self.action_space = gym.spaces.Discrete(self._actions.shape[0]) # Redefinimos el espacio de acciones a discreto con el número de acciones prototipo
 
     def action(self, act_idx):

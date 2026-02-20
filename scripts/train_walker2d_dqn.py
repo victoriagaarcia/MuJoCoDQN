@@ -30,7 +30,7 @@ from .utils import (
 
 ENV_ID = "Walker2d-v5"
 
-TOTAL_STEPS = 8_000_000 # Número total de pasos de interacción con el entorno (no episodios)
+TOTAL_STEPS = 50_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 200_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
@@ -41,7 +41,7 @@ START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a en
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
 # EPS_START = 0.1
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_DECAY = 4_000_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
+EPS_DECAY = 20_000_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 START_DECAY = 50_000 # Número de pasos antes de empezar a decaer epsilon 
 
 SEED = 42 # Semilla para reproducibilidad
@@ -55,7 +55,7 @@ DELTA_RW = 1.0
 LAM_RW = 0.05
 
 # Train con saltos
-TRAIN_FREQ = 4 # Como hay 4 envs, poner 4 es como hacer 1 update por iteración
+TRAIN_FREQ = 1 # Como hay 4 envs, poner 4 es como hacer 1 update por iteración
 LOG_EVERY = 5_000
 CHECKPOINT_EVERY = 250_000
 
@@ -72,7 +72,7 @@ def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array")
         # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-        env = IgnoreAngleTerminationWrapper(env)
+        # env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         env = RGBObsWrapper(env)
         return env
@@ -216,7 +216,7 @@ def main():
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array")
             # eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-            eval_env = IgnoreAngleTerminationWrapper(eval_env)
+            # eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
             eval_env = RGBObsWrapper(eval_env)
 
