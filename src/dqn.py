@@ -36,7 +36,7 @@ class QNetwork(nn.Module): # Aproxima Q(s,a), es decir, el valor esperado si hag
 # Replay Buffer
 # -----------------------------
 class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) para luego muestrear aleatoriamente y romper la correlación temporal entre muestras
-    def __init__(self, capacity, obs_shape=(4,84,84), device="cuda"):
+    def __init__(self, capacity, obs_shape=(4,84,84), device="cpu"):
         self.capacity = int(capacity)
         self.device = device
         

@@ -95,7 +95,7 @@ def main():
     target_net.load_state_dict(q_net.state_dict()) # Inicializamos la red objetivo con los mismos pesos que la red online
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
-    buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device=DEVICE) 
+    buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device="cpu") 
 
     seeds = [SEED + i for i in range(NUM_ENVS)] # Semillas diferentes para cada entorno paralelo para mayor diversidad de experiencias
     # state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
