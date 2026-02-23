@@ -260,7 +260,8 @@ def make_discrete_action_set_legprototype(action_dim: int):
     # a = 0.25 
     a = 1.0
     # b = 0.15 
-    b = 0.25
+    # b = 0.25
+    b = 0.5
 
     actions = []
 
@@ -299,10 +300,16 @@ def make_discrete_action_set_legprototype(action_dim: int):
 
     # 6) estabiliza (hips hacia atrás suave para no “tirarse”)
     # add(np.array([-b, 0, 0, -b, 0, 0], dtype=np.float32)
-    add(np.array([0, 0, 0, +a, 0, 0], dtype=np.float32))
-    add(np.array([0, 0, 0, -a, 0, 0], dtype=np.float32))
-    add(np.array([+a, 0, 0, 0, 0, 0], dtype=np.float32))
-    add(np.array([-a, 0, 0, 0, 0, 0], dtype=np.float32))
+    
+    # add(np.array([0, 0, 0, +a, 0, 0], dtype=np.float32))
+    # add(np.array([0, 0, 0, -a, 0, 0], dtype=np.float32))
+    # add(np.array([+a, 0, 0, 0, 0, 0], dtype=np.float32))
+    # add(np.array([-a, 0, 0, 0, 0, 0], dtype=np.float32))
+    
+    add(np.array([0, 0, 0, +b, 0, 0], dtype=np.float32))
+    add(np.array([0, 0, 0, -b, 0, 0], dtype=np.float32))
+    add(np.array([+b, 0, 0, 0, 0, 0], dtype=np.float32))
+    add(np.array([-b, 0, 0, 0, 0, 0], dtype=np.float32))
     
     return np.stack(actions, axis=0)
     
