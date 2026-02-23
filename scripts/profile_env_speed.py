@@ -7,8 +7,8 @@ import numpy as np
 import torch
 import time
 from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv
-from src.dqn import QNetwork
-from src.envs import DiscreteActionWrapper, PixelStackWrapper, ForwardAliveSmoothReward, IgnoreAngleTerminationWrapper
+from MuJoCoDQN.src.dqn_copy import QNetwork
+from MuJoCoDQN.src.envs_copy import DiscreteActionWrapper, PixelStackWrapper, ForwardAliveSmoothReward, IgnoreAngleTerminationWrapper
 
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

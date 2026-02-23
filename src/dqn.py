@@ -40,66 +40,22 @@ class QNetwork(nn.Module): # Aproxima Q(s,a), es decir, el valor esperado si hag
 # Replay Buffer
 # -----------------------------
 class ReplayBuffer: # Memoria en la que guardamos transiciones (s,a,r,s',done) para luego muestrear aleatoriamente y romper la correlación temporal entre muestras
-    def __init__(self, capacity, obs_shape=(4,84,84), device="cpu"):
-        self.capacity = capacity
-        self.device = device
-
-        self.states = np.zeros((capacity, *obs_shape), dtype=np.uint8)
-        self.next_states = np.zeros((capacity, *obs_shape), dtype=np.uint8)
-
-        self.actions = np.zeros((capacity,), dtype=np.int64)
-        self.rewards = np.zeros((capacity,), dtype=np.float32)
-        self.dones = np.zeros((capacity,), dtype=np.float32)
-
-        self.idx = 0
-        self.size = 0
+    def __init__(self, capacity: int):
+        self.buffer = deque(maxlen=capacity)
 
     def push(self, state, action, reward, next_state, done):
-        # self.buffer.append((state, action, reward, next_state, done))
-        self.states[self.idx] = state.astype(np.uint8)
-        self.next_states[self.idx] = next_state.astype(np.uint8)
-        self.actions[self.idx] = int(action)
-        self.rewards[self.idx] = float(reward)
-        self.dones[self.idx] = float(done)
+        self.buffer.append((state, action, reward, next_state, done))
 
-        self.idx = (self.idx + 1) % self.capacity
-        self.size = min(self.size + 1, self.capacity)
-    
-    def push_batch(self, states, actions, rewards, next_states, dones):
-        batch_size = states.shape[0]
-        idxs = (self.idx + np.arange(batch_size)) % self.capacity
-
-        self.states[idxs] = states.astype(np.uint8)
-        self.next_states[idxs] = next_states.astype(np.uint8)
-        self.actions[idxs] = actions.astype(np.int64, copy=False)
-        self.rewards[idxs] = rewards
-        self.dones[idxs] = dones
-
-        self.idx = (self.idx + batch_size) % self.capacity
-        self.size = min(self.size + batch_size, self.capacity)
-
-    def sample(self, batch_size):
-        # idxs = np.random.randint(0, len(self.buffer), size=batch_size)
-        # states, actions, rewards, next_states, dones = zip(*(self.buffer[i] for i in idxs))
-
-        # return (
-        #     torch.from_numpy(np.stack(states)).float(),
-        #     torch.tensor(actions, dtype=torch.long),
-        #     torch.tensor(rewards, dtype=torch.float32),
-        #     torch.from_numpy(np.stack(next_states)).float(),
-        #     torch.tensor(dones, dtype=torch.float32),
-        # )
-
-        idxs = np.random.randint(0, self.size, size=batch_size)
-
+    def sample(self, batch_size: int):
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = map(np.array, zip(*batch))
         return (
-            torch.from_numpy(self.states[idxs]).float().to(self.device) / 255.0, # Normalizamos a [0,1]
-            torch.from_numpy(self.actions[idxs]).long().to(self.device),
-            torch.from_numpy(self.rewards[idxs]).float().to(self.device),
-            torch.from_numpy(self.next_states[idxs]).float().to(self.device) / 255.0,
-            torch.from_numpy(self.dones[idxs]).float().to(self.device),
+            torch.tensor(states, dtype=torch.float32),
+            torch.tensor(actions, dtype=torch.long),
+            torch.tensor(rewards, dtype=torch.float32),
+            torch.tensor(next_states, dtype=torch.float32),
+            torch.tensor(dones, dtype=torch.float32),
         )
 
     def __len__(self):
-        # return len(self.buffer)
-        return self.size
+        return len(self.buffer)

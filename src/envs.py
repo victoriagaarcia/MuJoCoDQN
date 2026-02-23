@@ -8,124 +8,12 @@ from collections import deque
 # =========================================================
 def preprocess(frame, size=84):
     """
-    RGB uint8 (H,W,3) -> grayscale uint8 (84,84) en [0,255]
+    RGB uint8 (H,W,3) -> grayscale float32 (84,84) en [0,1]
     """
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     frame = cv2.resize(frame, (size, size), interpolation=cv2.INTER_AREA) # Normaliza imagen a 84x84
-    # frame = frame.astype(np.float32) / 255.0 # Normaliza a [0,1]
-    return frame # Ahora dejamos como uint8 para ahorrar memoria en el buffer, normalizaremos a float32 al convertir a tensor en el sample()
-
-
-class ImageObsWrapper(gym.ObservationWrapper):
-    """
-    Convierte la observación en un frame RGB preprocesado
-    Shape final: (84, 84)
-    """
-    def __init__(self, env, size=84):
-        super().__init__(env)
-        self.size = size
-        self.observation_space = gym.spaces.Box(
-            low=0,
-            high=255,
-            shape=(size, size, 1),
-            dtype=np.uint8,
-        )
-
-    def observation(self, obs):
-        frame = self.env.render() # Obtiene el frame RGB actual
-        p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
-        p = p[..., None] # Agrega canal de color (H, W) -> (H, W, 1) para hacer luego un stack
-        return p
-
-
-class IgnoreAngleTerminationWrapper(gym.Wrapper):
-    def __init__(self, env):
-        super().__init__(env)
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-
-        # Accedemos al estado interno MuJoCo
-        z = self.env.unwrapped.data.qpos[1]       # altura
-        angle = self.env.unwrapped.data.qpos[2]   # ángulo torso
-
-        # Rango saludable original de altura
-        healthy_z_range = self.env.unwrapped._healthy_z_range
-
-        # NUEVA condición: solo depende de altura
-        healthy_z = healthy_z_range[0] < z < healthy_z_range[1]
-
-        # Ignoramos condición del ángulo
-        terminated = not healthy_z
-
-        return obs, reward, terminated, truncated, info
-
-
-class ForwardAliveSmoothReward(gym.Wrapper):
-    def __init__(self, env, alpha=2.0, beta=1.0, gamma=0.6, delta=1.0, lam=0.05):
-        super().__init__(env)
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-        self.delta = delta
-        self.lam = lam
-        self.prev_action = None
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        self.prev_action = None
-        return obs, info
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        info = dict(info)
-
-        # Intentamos leer términos del info (si tu gym los expone)
-        forward = info.get("reward_forward", None)
-        ctrl = info.get("reward_ctrl", None)
-
-        # Fallbacks robustos
-        vx = float(self.env.unwrapped.data.qvel[0])  # velocidad x torso
-        if forward is None:
-            forward = vx
-        if ctrl is None:
-            ctrl = 0.0
-
-        # Healthy: usamos el criterio interno del entorno
-        healthy = 1.0 if getattr(self.env.unwrapped, "is_healthy", True) else 0.0
-        # En algunas versiones is_healthy es @property
-        try:
-            healthy = 1.0 if self.env.unwrapped.is_healthy else 0.0
-        except Exception:
-            pass
-
-        # Penaliza ir hacia atrás
-        backward_pen = max(0.0, -vx)
-
-        # Penaliza cambios bruscos de acción (suavidad)
-        a = np.array(action, dtype=np.float32)
-        smooth_pen = 0.0
-        if self.prev_action is not None:
-            smooth_pen = float(np.sum((a - self.prev_action) ** 2))
-        self.prev_action = a
-
-        new_reward = (
-            self.alpha * 1.0 * (vx > 0.0)
-            + self.beta * float(healthy)
-            - self.gamma * float(ctrl)
-            - self.delta * float(backward_pen)
-            - self.lam * float(smooth_pen)
-        )
-
-        # Debug en info (útil para análisis)
-        info["shaping/forward"] = float(forward)
-        info["shaping/healthy"] = float(healthy)
-        info["shaping/ctrl"] = float(ctrl)
-        info["shaping/backward_pen"] = float(backward_pen)
-        info["shaping/smooth_pen"] = float(smooth_pen)
-        info["shaping/reward"] = float(new_reward)
-
-        return obs, new_reward, terminated, truncated, info
+    frame = frame.astype(np.float32) / 255.0 # Normaliza a [0,1]
+    return frame
 
 
 class PixelStackWrapper(gym.Wrapper):
@@ -213,9 +101,8 @@ def make_discrete_action_set(action_dim: int):
     # magnitudes suaves (evita 1.0 al inicio)
     # a1 = 0.2
     a1 = 0.4
-    # a2 = 0.6
+    # a2 = 0.4
     a2 = 1.0  
-    # chat sugiere a1=0.25 y a2=0.35 ¿?
     
     actions = [Z]
 
