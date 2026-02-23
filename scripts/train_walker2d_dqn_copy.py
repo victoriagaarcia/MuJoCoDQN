@@ -285,22 +285,33 @@ def main():
                     gcnt += 1
                     gmax = max(gmax, float(p.grad.detach().abs().max().item()))
             print("grad params:", gcnt, "grad_abs_max:", gmax)
-
-            # ---- CLONE PARAM BEFORE STEP ----
+            
+            # after backward (y antes del step)
             with torch.no_grad():
-                p0 = next(q_net.parameters())
-                p0_before = p0.detach().clone()
-
+                before = {k: v.detach().clone() for k, v in q_net.state_dict().items()}
             # ---- STEP ----
             optimizer.step()
 
-            # ---- CHECK CHANGE ----
             with torch.no_grad():
-                p0_after = next(q_net.parameters()).detach()
-                diff_max = (p0_after - p0_before).abs().max().item()
-                diff_mean = (p0_after - p0_before).abs().mean().item()
+                max_change = 0.0
+                for k, v in q_net.state_dict().items():
+                    max_change = max(max_change, (v - before[k]).abs().max().item())
+            print("STATE_DICT max_change:", max_change)
 
-            print("param change: max", diff_max, "mean", diff_mean)
+            p0 = next(q_net.parameters())
+            st = optimizer.state.get(p0, {})
+            ea = st.get("exp_avg", None)
+            eas = st.get("exp_avg_sq", None)
+            print("has_state:", bool(st), "exp_avg_max:", None if ea is None else ea.abs().max().item(),
+                "exp_avg_sq_max:", None if eas is None else eas.abs().max().item())
+
+            # # ---- CHECK CHANGE ----
+            # with torch.no_grad():
+            #     p0_after = next(q_net.parameters()).detach()
+            #     diff_max = (p0_after - p0_before).abs().max().item()
+            #     diff_mean = (p0_after - p0_before).abs().mean().item()
+
+            # print("param change: max", diff_max, "mean", diff_mean)
 
             # if global_step % 10_000 < NUM_ENVS:
             #     with torch.no_grad():
