@@ -9,6 +9,7 @@ from collections import deque
 import cv2
 import numpy as np
 import gymnasium as gym
+from scripts.utils import preprocess
 
 class Gray84ObsWrapper(gym.ObservationWrapper):
     """
@@ -148,43 +149,43 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         return obs, new_reward, terminated, truncated, info
 
 
-# class PixelStackWrapper(gym.Wrapper):
-#     """
-#     Convierte la observación en un stack de K frames preprocesados
-#     Shape final: (K, 84, 84)
-#     """
-#     def __init__(self, env, k=4, size=84):
-#         super().__init__(env)
-#         self.k = k
-#         self.size = size
-#         self.frames = deque(maxlen=k)
+class PixelStackWrapper(gym.Wrapper):
+    """
+    Convierte la observación en un stack de K frames preprocesados
+    Shape final: (K, 84, 84)
+    """
+    def __init__(self, env, k=4, size=84):
+        super().__init__(env)
+        self.k = k
+        self.size = size
+        self.frames = deque(maxlen=k)
 
-#         self.observation_space = gym.spaces.Box(
-#             low=0.0,
-#             high=1.0,
-#             shape=(k, size, size),
-#             dtype=np.float32,
-#         )
+        self.observation_space = gym.spaces.Box(
+            low=0.0,
+            high=1.0,
+            shape=(k, size, size),
+            dtype=np.float32,
+        )
 
-#     def reset(self, **kwargs):
-#         _, info = self.env.reset(**kwargs)
-#         frame = self.env.render() # Obtiene el frame RGB actual
-#         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
+    def reset(self, **kwargs):
+        _, info = self.env.reset(**kwargs)
+        frame = self.env.render() # Obtiene el frame RGB actual
+        p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
 
-#         self.frames.clear()
-#         for _ in range(self.k):
-#             self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
+        self.frames.clear()
+        for _ in range(self.k):
+            self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
 
-#         return np.stack(self.frames, axis=0), info
+        return np.stack(self.frames, axis=0), info
 
-#     def step(self, action):
-#         obs, reward, terminated, truncated, info = self.env.step(action)
-#         frame = self.env.render()
-#         p = preprocess(frame, self.size)
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        frame = self.env.render()
+        p = preprocess(frame, self.size)
 
-#         self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
+        self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
 
-#         return np.stack(self.frames, axis=0), reward, terminated, truncated, info
+        return np.stack(self.frames, axis=0), reward, terminated, truncated, info
 
 
 # =========================================================

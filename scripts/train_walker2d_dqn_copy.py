@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from turtle import done
 
 import gymnasium as gym
 import numpy as np
@@ -16,13 +17,15 @@ from src.envs_copy import (
     Gray84ObsWrapper,
     ForwardAliveSmoothReward, 
     IgnoreAngleTerminationWrapper,
+    PixelStackWrapper,
     RGBObsWrapper
 )
 from .utils import (
     epsilon,
     preprocess_rgb_batch_torch,
     should_update_target,
-    save_experiment_to_excel
+    save_experiment_to_excel,
+    to_uint8_stack
 )
 
 # -----------------------------
@@ -36,7 +39,7 @@ BUFFER_SIZE = 200_000 # Capacidad máxima del replay buffer (número de transici
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
 LR = 1e-4
-TARGET_UPDATE = 10_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
+TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
 START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
@@ -76,7 +79,8 @@ def make_env(rank:int):
         env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         # env = RGBObsWrapper(env)
-        env = Gray84ObsWrapper(env, size=84) 
+        # env = Gray84ObsWrapper(env, size=84) 
+        env = PixelStackWrapper(env, k=4, size=84) # Apilamos 4 frames preprocesados (grayscale 84x84) para captar movimiento y convertir la observación a un formato adecuado para la red Q
         return env
     return _thunk
 
@@ -112,14 +116,15 @@ def main():
     # n_episodes = 0
 
     obs, info = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (batch de stacks de frames)
-    
+    state = to_uint8_stack(obs) # Convertimos la observación inicial a uint8 y al formato (B,4,84,84) para el buffer
+
     # Frame inicial -> stack 4
     
     # frame = preprocess_rgb_batch_torch(obs, out_size=84, device="cpu") # (B,1,84,84) uint8
     # state = frame.repeat(1, 4, 1, 1).contiguous()
     
-    frame = torch.from_numpy(obs).unsqueeze(1)          # (B,1,84,84) uint8
-    state = frame.repeat(1, 4, 1, 1).contiguous()       # (B,4,84,84) uint8
+    # frame = torch.from_numpy(obs).unsqueeze(1)          # (B,1,84,84) uint8
+    # state = frame.repeat(1, 4, 1, 1).contiguous()       # (B,4,84,84) uint8
 
     # obs_chw = transpose_obs_batch(obs) # Transponemos las observaciones al formato (B, C, H, W) 
     # state = np.repeat(obs_chw, 4, axis=1) # Creamos el stack inicial de 4 frames repitiendo la misma observación 4 veces
@@ -170,7 +175,7 @@ def main():
         # Ejecutamos la acción en el entorno vectorizado
         next_obs, rewards, terminated, truncated, infos = env.step(actions)
         # next_frame = env.render() # Renderizamos el entorno para obtener los frames RGB (si el entorno lo soporta)
-        done = np.logical_or(terminated, truncated)
+        episode_done = np.logical_or(terminated, truncated)
         done_boot = terminated
 
         # if global_step % 10_000 < NUM_ENVS:
@@ -192,8 +197,8 @@ def main():
         # next_frame = preprocess_rgb_batch_torch(next_obs, out_size=84, device="cpu") # (B,1,84,84) uint8
         # next_state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()        # (B,4,84,84
         
-        next_frame = torch.from_numpy(next_obs).unsqueeze(1)    # (B,1,84,84) uint8
-        next_state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
+        # next_frame = torch.from_numpy(next_obs).unsqueeze(1)    # (B,1,84,84) uint8
+        # next_state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
         
         # if isinstance(infos, dict) and "final_observation" in infos:
         #     final_obs = infos["final_observation"]
@@ -203,18 +208,20 @@ def main():
         #     if idx.size > 0:
         #         term_frame = preprocess_rgb_batch_torch(final_obs[idx], out_size=84, device="cpu")
         #         next_state_buf[idx] = torch.cat([state[idx, 1:], term_frame], dim=1).contiguous()
-        if global_step % 10_000 < NUM_ENVS:
-            m = next_frame.float().mean(axis=(1,2,3)).numpy()
-            s = next_frame.float().std(axis=(1,2,3)).numpy()
-            writer.add_scalar("debug/frame_mean_min", float(m.min()), global_step)
-            writer.add_scalar("debug/frame_mean_max", float(m.max()), global_step)
-            writer.add_scalar("debug/frame_std_min", float(s.min()), global_step)
-            writer.add_scalar("debug/frame_std_max", float(s.max()), global_step)
+        # if global_step % 10_000 < NUM_ENVS:
+        #     m = next_frame.float().mean(axis=(1,2,3)).numpy()
+        #     s = next_frame.float().std(axis=(1,2,3)).numpy()
+        #     writer.add_scalar("debug/frame_mean_min", float(m.min()), global_step)
+        #     writer.add_scalar("debug/frame_mean_max", float(m.max()), global_step)
+        #     writer.add_scalar("debug/frame_std_min", float(s.min()), global_step)
+        #     writer.add_scalar("debug/frame_std_max", float(s.max()), global_step)
 
-            last = state[:, -1].to(torch.int16)
-            new = next_frame[:, 0].to(torch.int16)
-            writer.add_scalar("debug/mean abs (last-new)", (last-new).abs().float().mean().item(), global_step)
-                
+        #     last = state[:, -1].to(torch.int16)
+        #     new = next_frame[:, 0].to(torch.int16)
+        #     writer.add_scalar("debug/mean abs (last-new)", (last-new).abs().float().mean().item(), global_step)
+        
+        next_state = to_uint8_stack(next_obs) # Convertimos el siguiente estado a uint8 y al formato (B,4,84,84) para el buffer
+
         # Ahora pusheamos todo el batch
         buffer.push_batch(
             states=state,
@@ -229,43 +236,28 @@ def main():
             writer.add_scalar("debug/has_final_observation", has_final, global_step)
             writer.add_scalar("debug/buffer_size", len(buffer), global_step)
             if has_final:
-                fm = infos.get("_final_observation", done)
+                fm = infos.get("_final_observation", episode_done)
                 writer.add_scalar("debug/final_obs_count", int(np.sum(fm)), global_step)
-        # # --- reset SOLO de los entornos que han terminado ---
-        if np.any(done):
-            # Para los envs reseteados, reiniciamos el stack con su primer frame
-            done_idx = np.where(done)[0]
-            # reset_frame = preprocess_rgb_batch_torch(next_obs[done_idx], out_size=84, device="cpu")  # (k,1,84,84)
-            # reset_stack = reset_frame.repeat(1, 4, 1, 1).contiguous()                                 # (k,4,84,84
-            
-            reset_frame = torch.from_numpy(next_obs[done_idx]).unsqueeze(1)    # (k,1,84,84) uint8
-            reset_stack = reset_frame.repeat(1, 4, 1, 1).contiguous()       # (k,4,84,84) uint8
-
-            # OJO: next_state es lo que guardas como s' en el buffer (terminal incluido).
-            # Para continuar el rollout, debemos usar estado reseteado en esos índices:
-            next_state[done_idx] = reset_stack
-
-        state = next_state # Actualizamos el estado actual al siguiente estado para la próxima iteración
         
-        # episode_rewards += reward.astype(np.float32) # Acumulamos la recompensa del episodio actual para cada entorno
-
-        if np.any(done):
-            done_idx = np.where(done)[0]
-            for i in done_idx:
-                writer.add_scalar("episode_reward", episode_rewards[i], global_step)
-                writer.add_scalar("episode_length", episode_lengths[i], global_step)
+        # # --- reset SOLO de los entornos que han terminado ---
+        if np.any(episode_done):
+            # Para los envs reseteados, reiniciamos el stack con su primer frame
+            done_idx = np.where(episode_done)[0]
+            for i in done_idx: 
+                writer.add_scalar("episode_reward", float(episode_rewards[i]), global_step)
+                writer.add_scalar("episode_length", int(episode_lengths[i]), global_step)
                 n_episodes += 1
                 episode_rewards[i] = 0.0
                 episode_lengths[i] = 0
 
         if global_step >= START_TRAINING:
-            states, actions_t, reward_t, next_states, dones_t = buffer.sample(BATCH_SIZE)
+            states_b, actions_t, reward_t, next_states_b, dones_t = buffer.sample(BATCH_SIZE)
             # buffer.sample ya devuelve tensores en DEVICE (según tu implementación)
-            q_values = q_net(states).gather(1, actions_t.unsqueeze(1)).squeeze(1)
+            q_values = q_net(states_b).gather(1, actions_t.unsqueeze(1)).squeeze(1)
 
             with torch.no_grad():
                 # DQN estándar
-                max_next_q = target_net(next_states).max(1)[0]
+                max_next_q = target_net(next_states_b).max(1)[0]
                 target = reward_t + GAMMA * max_next_q * (1.0 - dones_t)
 
             loss = torch.nn.functional.mse_loss(q_values, target)
@@ -273,14 +265,14 @@ def main():
             optimizer.zero_grad()
             loss.backward()
 
-            if global_step % 10_000 < NUM_ENVS:
-                total_norm_sq = 0.0
-                for p in q_net.parameters():
-                    if p.grad is not None:
-                        n = p.grad.data.norm(2).item()
-                        total_norm_sq += n * n
-                grad_norm = total_norm_sq ** 0.5
-                writer.add_scalar("debug/grad_norm", grad_norm, global_step)
+            # if global_step % 10_000 < NUM_ENVS:
+            #     total_norm_sq = 0.0
+            #     for p in q_net.parameters():
+            #         if p.grad is not None:
+            #             n = p.grad.data.norm(2).item()
+            #             total_norm_sq += n * n
+            #     grad_norm = total_norm_sq ** 0.5
+            #     writer.add_scalar("debug/grad_norm", grad_norm, global_step)
 
             torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
             # if global_step % 10_000 < NUM_ENVS:
@@ -327,24 +319,24 @@ def main():
                 writer.add_scalar("epsilon", eps, global_step)
                 writer.add_scalar("updates_done", updates_done, global_step)
 
-            if global_step % 10_000 < NUM_ENVS:
-                s, a, r, ns, d = buffer.sample(64)
-                delta = (s[:, -1] - ns[:, -1]).abs().mean().item()
-                writer.add_scalar("debug/sample_state_delta", delta, global_step)
+            # if global_step % 10_000 < NUM_ENVS:
+            #     s, a, r, ns, d = buffer.sample(64)
+            #     delta = (s[:, -1] - ns[:, -1]).abs().mean().item()
+            #     writer.add_scalar("debug/sample_state_delta", delta, global_step)
 
-                with torch.no_grad():
-                    writer.add_scalar("debug/updates_done", updates_done, global_step)
+            #     with torch.no_grad():
+            #         writer.add_scalar("debug/updates_done", updates_done, global_step)
 
-                    writer.add_scalar("debug/q_mean", float(q_values.mean().item()), global_step)
-                    writer.add_scalar("debug/q_std", float(q_values.std().item()), global_step)
+            #         writer.add_scalar("debug/q_mean", float(q_values.mean().item()), global_step)
+            #         writer.add_scalar("debug/q_std", float(q_values.std().item()), global_step)
                     
-                    writer.add_scalar("debug/target_mean", float(target.mean().item()), global_step)
-                    writer.add_scalar("debug/target_std", float(target.std().item()), global_step)
+            #         writer.add_scalar("debug/target_mean", float(target.mean().item()), global_step)
+            #         writer.add_scalar("debug/target_std", float(target.std().item()), global_step)
                     
-                    writer.add_scalar("debug/reward_mean", float(reward_t.mean().item()), global_step)
-                    writer.add_scalar("debug/reward_std", float(reward_t.std().item()), global_step)
+            #         writer.add_scalar("debug/reward_mean", float(reward_t.mean().item()), global_step)
+            #         writer.add_scalar("debug/reward_std", float(reward_t.std().item()), global_step)
                     
-                    writer.add_scalar("debug/done_mean", float(dones_t.mean().item()), global_step)
+            #         writer.add_scalar("debug/done_mean", float(dones_t.mean().item()), global_step)
 
         if should_update_target(global_step, TARGET_UPDATE, NUM_ENVS):
             target_net.load_state_dict(q_net.state_dict())
@@ -361,21 +353,23 @@ def main():
             test_rewards = []
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
-            # eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-            # eval_env = IgnoreAngleTerminationWrapper(eval_env)
+            eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+            eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
+            eval_env = PixelStackWrapper(eval_env, k=4, size=84) # Mismo preprocesamiento que en el entrenamiento para que la red pueda procesar las observaciones correctamente
             # eval_env = RGBObsWrapper(eval_env)
-            eval_env = Gray84ObsWrapper(eval_env, size=84)
+            # eval_env = Gray84ObsWrapper(eval_env, size=84)
 
             for ep in tqdm(range(10)):
                 obs_eval, _ = eval_env.reset() # Semilla diferente para el test de evaluación para mayor diversidad
-                
-                obs_eval_np = np.ascontiguousarray(obs_eval)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
+                obs_eval_b = obs_eval[None, ...] # (1,H,W,3) uint8
+                state_eval = to_uint8_stack(obs_eval_b) # (1,4,84,84) uint8, stack inicial con 4 frames iguales
+
                 # frame_eval = preprocess_rgb_batch_torch(obs_eval_np[None, ...], out_size=84, device="cpu")
                 # state_eval = frame_eval.repeat(1, 4, 1, 1).contiguous()
 
-                frame_eval = torch.from_numpy(obs_eval_np).unsqueeze(0).unsqueeze(1)  # (1,1,84,84) uint8
-                state_eval = frame_eval.repeat(1, 4, 1, 1).contiguous()  # (1,4,84,84) uint8
+                # frame_eval = torch.from_numpy(obs_eval_b).unsqueeze(1)  # (1,1,84,84) uint8
+                # state_eval = frame_eval.repeat(1, 4, 1, 1).contiguous()  # (1,4,84,84) uint8
 
                 test_episode_reward = 0.0
                 while True:
@@ -383,17 +377,18 @@ def main():
                         s = state_eval.to(DEVICE, non_blocking=True).float().div_(255.0)  # (1,4,84,84)
                         action = int(q_net(s).argmax(dim=1).item())
 
-                    next_obs, reward, terminated, truncated, infos = eval_env.step(action) # era test_state antes de next_obs
+                    next_obs_eval, reward, terminated, truncated, infos = eval_env.step(action) # era test_state antes de next_obs
                     test_episode_reward += float(reward)
                     
-                    next_obs_eval_np = np.ascontiguousarray(next_obs)
-                    # preprocess next frame + update stack
-                    # next_frame = preprocess_rgb_batch_torch(next_obs_eval_np[None, ...], out_size=84, device="cpu")
-                    # state_eval = torch.cat([state_eval[:, 1:], next_frame], dim=1).contiguous()
+                    # next_obs_eval_np = np.ascontiguousarray(next_obs)
+                    # # preprocess next frame + update stack
+                    # # next_frame = preprocess_rgb_batch_torch(next_obs_eval_np[None, ...], out_size=84, device="cpu")
+                    # # state_eval = torch.cat([state_eval[:, 1:], next_frame], dim=1).contiguous()
                     
-                    next_frame = torch.from_numpy(next_obs_eval_np).unsqueeze(0).unsqueeze(1)  # (1,1,84,84) uint8
-                    state_eval = torch.cat([state_eval[:, 1:], next_frame], dim=1).contiguous()  # (1,4,84,84) uint8
-                    
+                    # next_frame = torch.from_numpy(next_obs_eval_np).unsqueeze(0).unsqueeze(1)  # (1,1,84,84) uint8
+                    # state_eval = torch.cat([state_eval[:, 1:], next_frame], dim=1).contiguous()  # (1,4,84,84) uint8
+                    state_eval = to_uint8_stack(next_obs_eval[None, ...]) # (1,4,84,84) uint8, actualizamos el stack con el nuevo frame
+
                     if terminated or truncated:
                         break
 

@@ -3,6 +3,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import numpy as np
+import cv2
 
 def epsilon(step, eps_end, eps_start, start_decay, eps_decay):
     # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
@@ -50,3 +51,30 @@ def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
             
             # Escribimos los datos sin repetir la cabecera (header=False)
             new_df.to_excel(writer, index=False, header=False, startrow=start_row, sheet_name='Sheet1')
+            
+def preprocess(frame, size=84):
+    """
+    RGB uint8 (H,W,3) -> grayscale float32 (84,84) en [0,1]
+    """
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    frame = cv2.resize(frame, (size, size), interpolation=cv2.INTER_AREA) # Normaliza imagen a 84x84
+    frame = frame.astype(np.float32) / 255.0 # Normaliza a [0,1]
+    return frame
+
+def to_uint8_stack(obs: np.ndarray) -> torch.Tensor:
+    """
+    Convierte observación (B,4,84,84) a torch.uint8 CPU.
+    Soporta:
+      - obs float32 en [0,1]  -> uint8 [0,255]
+      - obs uint8  en [0,255] -> uint8
+    """
+    # Asegura contigüidad para from_numpy rápido
+    obs = np.ascontiguousarray(obs)
+
+    if obs.dtype == np.uint8:
+        return torch.from_numpy(obs)  # (B,4,84,84) uint8
+    else:
+        # asumimos float en [0,1] (como el wrapper antiguo)
+        # si por algún motivo ya estuviera en [0,255] float, lo saturamos igual
+        x = np.clip(obs * 255.0, 0.0, 255.0).astype(np.uint8, copy=False)
+        return torch.from_numpy(x)
