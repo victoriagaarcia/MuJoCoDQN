@@ -255,7 +255,8 @@ def main():
                 episode_rewards[i] = 0.0
                 episode_lengths[i] = 0
 
-            state, _ = env.reset(seed=seeds)
+            obs, _ = env.reset(seed=seeds)
+            state = to_uint8_stack(obs)
 
         if len(buffer) > START_TRAINING:
             states_b, actions_t, reward_t, next_states_b, dones_t = buffer.sample(BATCH_SIZE)
