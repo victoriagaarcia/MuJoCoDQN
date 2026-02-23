@@ -20,10 +20,10 @@ from .utils import (
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb20_14_03_55"
-CHECKPOINT_STEP = "500000"
-# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{CHECKPOINT_STEP}.pt"  # ← ajusta esto
+MODEL_DATE = "Feb20_15_01_35"
+CHECKPOINT_STEP = ""
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
+# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{CHECKPOINT_STEP}.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
 N_EPISODES = 3
 
@@ -39,7 +39,7 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 def make_eval_env():
     env = gym.make(ENV_ID, render_mode="rgb_array")
     # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-    env = IgnoreAngleTerminationWrapper(env)
+    # env = IgnoreAngleTerminationWrapper(env)
     env = DiscreteActionWrapper(env)
     env = RGBObsWrapper(env)  
     return env
