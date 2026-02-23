@@ -156,6 +156,14 @@ def main():
 
         # Ejecutamos la acción en el entorno vectorizado
         next_obs, rewards, terminated, truncated, infos = env.step(actions)
+        if global_step % 10_000 < NUM_ENVS:
+            m = next_obs.mean(axis=(1,2,3))
+            s = next_obs.std(axis=(1,2,3))
+            writer.add_scalar("debug/frame_mean_min", float(m.min()), global_step)
+            writer.add_scalar("debug/frame_mean_max", float(m.max()), global_step)
+            writer.add_scalar("debug/frame_std_min", float(s.min()), global_step)
+            writer.add_scalar("debug/frame_std_max", float(s.max()), global_step)
+
         done = np.logical_or(terminated, truncated)
 
         episode_rewards+= rewards.astype(np.float32)
@@ -174,6 +182,17 @@ def main():
                 term_frame = preprocess_rgb_batch_torch(final_obs[idx], out_size=84, device="cpu")
                 next_state[idx] = torch.cat([state[idx, 1:], term_frame], dim=1).contiguous()
 
+        if global_step % 10_000 < NUM_ENVS:
+            has_final = int(isinstance(infos, dict) and ("final_observation" in infos))
+            writer.add_scalar("debug/has_final_observation", has_final, global_step)
+            if has_final:
+                fm = infos.get("_final_observation", done)
+                writer.add_scalar("debug/final_obs_count", int(np.sum(fm)), global_step)
+            
+            # diferencia promedio entre último y penúltimo frame del stack
+            d = (next_state[:, -1].to(torch.int16) - next_state[:, -2].to(torch.int16)).abs().float().mean().item()
+            writer.add_scalar("debug/stack_frame_delta_mean", d, global_step)
+                
         # Ahora pusheamos todo el batch
         buffer.push_batch(
             states=state,
