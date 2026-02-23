@@ -30,7 +30,8 @@ def preprocess_rgb_batch_torch(rgb_bhwc: np.ndarray, out_size=84, device="cpu") 
 
 # Escala target update por NUM_ENVS (en términos de transiciones reales)
 def should_update_target(gs: int, target_update: int, num_envs: int) -> bool:
-    return (gs % target_update) < num_envs
+    prev = gs - num_envs
+    return (prev // target_update) != (gs //target_update)
 
 def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
     # Convertimos el diccionario en un DataFrame de una sola fila
