@@ -255,33 +255,60 @@ def main():
 
             loss = torch.nn.functional.mse_loss(q_values, target)
 
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
+            # loss.backward()
+
+            # if global_step % 10_000 < NUM_ENVS:
+            #     total_norm_sq = 0.0
+            #     for p in q_net.parameters():
+            #         if p.grad is not None:
+            #             n = p.grad.data.norm(2).item()
+            #             total_norm_sq += n * n
+            #     grad_norm = total_norm_sq ** 0.5
+            #     writer.add_scalar("debug/grad_norm", grad_norm, global_step)
+
+            # torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
+            # if global_step % 10_000 < NUM_ENVS:
+            #     with torch.no_grad():
+            #         p = next(q_net.parameters())
+            #         p_before = p.detach().clone()
+
+            # optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
 
-            if global_step % 10_000 < NUM_ENVS:
-                total_norm_sq = 0.0
-                for p in q_net.parameters():
-                    if p.grad is not None:
-                        n = p.grad.data.norm(2).item()
-                        total_norm_sq += n * n
-                grad_norm = total_norm_sq ** 0.5
-                writer.add_scalar("debug/grad_norm", grad_norm, global_step)
+            # ---- DEBUG GRAD ----
+            gmax = 0.0
+            gcnt = 0
+            for p in q_net.parameters():
+                if p.grad is not None:
+                    gcnt += 1
+                    gmax = max(gmax, float(p.grad.detach().abs().max().item()))
+            print("grad params:", gcnt, "grad_abs_max:", gmax)
 
-            torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
-            if global_step % 10_000 < NUM_ENVS:
-                with torch.no_grad():
-                    p = next(q_net.parameters())
-                    p_before = p.detach().clone()
+            # ---- CLONE PARAM BEFORE STEP ----
+            with torch.no_grad():
+                p0 = next(q_net.parameters())
+                p0_before = p0.detach().clone()
 
+            # ---- STEP ----
             optimizer.step()
 
-            if global_step % 10_000 < NUM_ENVS:
-                with torch.no_grad():
-                    p = next(q_net.parameters())
-                    diff_max = (p - p_before).abs().max().item()
-                    diff_mean = (p - p_before).abs().mean().item()
-                writer.add_scalar("debug/param_diff_max", diff_max, global_step)
-                writer.add_scalar("debug/param_diff_mean", diff_mean, global_step)
+            # ---- CHECK CHANGE ----
+            with torch.no_grad():
+                p0_after = next(q_net.parameters()).detach()
+                diff_max = (p0_after - p0_before).abs().max().item()
+                diff_mean = (p0_after - p0_before).abs().mean().item()
+
+            print("param change: max", diff_max, "mean", diff_mean)
+
+            # if global_step % 10_000 < NUM_ENVS:
+            #     with torch.no_grad():
+            #         p = next(q_net.parameters())
+            #         diff_max = (p - p0_before).abs().max().item()
+            #         diff_mean = (p - p0_before).abs().mean().item()
+            #     writer.add_scalar("debug/param_diff_max", diff_max, global_step)
+            #     writer.add_scalar("debug/param_diff_mean", diff_mean, global_step)
             updates_done += 1
 
             if global_step % LOG_EVERY < NUM_ENVS:
