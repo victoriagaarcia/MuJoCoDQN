@@ -126,14 +126,33 @@ def main():
         eps = epsilon(global_step, EPS_END, EPS_START, 
                       START_DECAY, EPS_DECAY) # Calculamos el valor de epsilon para esta etapa del entrenamiento (decay lineal)
 
-        # epsilon-greedy (batch)
-        if np.random.rand() < eps:
-            actions = np.array([env.single_action_space.sample() for _ in range(NUM_ENVS)], dtype=np.int64)
-        else:
+        # # epsilon-greedy (batch)
+        # if np.random.rand() < eps:
+        #     actions = np.array([env.single_action_space.sample() for _ in range(NUM_ENVS)], dtype=np.int64)
+        # else:
+        #     with torch.no_grad():
+        #         s = state.to(DEVICE, non_blocking=True).float().div_(255.0)  # (B,4,84,84) float
+        #         q = q_net(s)
+        #         actions = q.argmax(dim=1).detach().cpu().numpy().astype(np.int64)
+
+        # epsilon-greedy PER-ENV (mezcla random/greedy por subentorno)
+        actions = np.empty((NUM_ENVS,), dtype=np.int64)
+        rand_mask = (np.random.rand(NUM_ENVS) < eps)
+
+        # random donde toca
+        n_rand = int(rand_mask.sum())
+        if n_rand > 0:
+            actions[rand_mask] = np.array(
+                [env.single_action_space.sample() for _ in range(n_rand)],
+                dtype=np.int64
+            )
+
+        # greedy donde toca
+        if (~rand_mask).any():
             with torch.no_grad():
-                s = state.to(DEVICE, non_blocking=True).float().div_(255.0)  # (B,4,84,84) float
+                s = state[~rand_mask].to(DEVICE, non_blocking=True).float().div_(255.0)
                 q = q_net(s)
-                actions = q.argmax(dim=1).detach().cpu().numpy().astype(np.int64)
+                actions[~rand_mask] = q.argmax(dim=1).detach().cpu().numpy().astype(np.int64)
 
         # Ejecutamos la acción en el entorno vectorizado
         next_obs, rewards, terminated, truncated, infos = env.step(actions)
@@ -146,9 +165,10 @@ def main():
         next_frame = preprocess_rgb_batch_torch(next_obs, out_size=84, device="cpu") # (B,1,84,84) uint8
         next_state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()        # (B,4,84,84)
 
-        if isinstance(info, dict) and "final_observation" in infos:
+        if isinstance(infos, dict) and "final_observation" in infos:
             final_obs = infos["final_observation"]
             final_mask = infos.get("_final_observation", done) 
+            
             idx = np.where(final_mask & done)[0]
             if idx.size > 0:
                 term_frame = preprocess_rgb_batch_torch(final_obs[idx], out_size=84, device="cpu")
@@ -163,6 +183,21 @@ def main():
             dones=done
         )
         
+        # --- reset SOLO de los entornos que han terminado ---
+        if np.any(done):
+            # Gymnasium AsyncVectorEnv suele soportar reset_done()
+            reset_obs, reset_infos = env.reset_done()
+
+            # Para los envs reseteados, reiniciamos el stack con su primer frame
+            done_idx = np.where(done)[0]
+
+            reset_frame = preprocess_rgb_batch_torch(reset_obs[done_idx], out_size=84, device="cpu")  # (k,1,84,84)
+            reset_stack = reset_frame.repeat(1, 4, 1, 1).contiguous()                                 # (k,4,84,84)
+
+            # OJO: next_state es lo que guardas como s' en el buffer (terminal incluido).
+            # Para continuar el rollout, debemos usar estado reseteado en esos índices:
+            next_state[done_idx] = reset_stack
+                
         state = next_state # Actualizamos el estado actual al siguiente estado para la próxima iteración
         
         # episode_rewards += reward.astype(np.float32) # Acumulamos la recompensa del episodio actual para cada entorno
