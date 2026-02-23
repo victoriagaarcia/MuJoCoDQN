@@ -65,10 +65,13 @@ class IgnoreAngleTerminationWrapper(gym.Wrapper):
         healthy_z_range = self.env.unwrapped._healthy_z_range
         
         # Bajar el umbral inferior de altura para permitir más flexibilidad 
-        lower_z = healthy_z_range[0] * 0.8  # por ejemplo, un 20% más bajo
+        lower_z = healthy_z_range[0] * 0.9  # por ejemplo, un 20% más bajo
+        
+        # Cambiar el rango saludable para el ángulo a algo más permisivo 
+        healthy_angle_range = (-1.5, 1.5)
 
-        # NUEVA condición: solo depende de altura
-        healthy_z = lower_z < z < healthy_z_range[1]
+        # NUEVA condición:
+        healthy_z = lower_z < z < healthy_z_range[1] and healthy_angle_range[0] < angle < healthy_angle_range[1]
 
         # Ignoramos condición del ángulo
         terminated = not healthy_z

@@ -3,12 +3,13 @@ import torch
 import numpy as np
 import os
 
-from MuJoCoDQN.src.dqn_copy import QNetwork
-from MuJoCoDQN.src.envs_copy import (
+from src.dqn_copy import QNetwork
+from src.envs_copy import (
     DiscreteActionWrapper, 
     ForwardAliveSmoothReward, 
     IgnoreAngleTerminationWrapper,
-    RGBObsWrapper
+    RGBObsWrapper,
+    Gray84ObsWrapper
 )
 from .utils import (
     preprocess_rgb_batch_torch
@@ -20,10 +21,10 @@ from .utils import (
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb23_10_11_56"
-CHECKPOINT_STEP = "750000"
-# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{CHECKPOINT_STEP}.pt"  # ← ajusta esto
+MODEL_DATE = "Feb23_17_42_17"
+CHECKPOINT_STEP = "5000000"
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
+# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{CHECKPOINT_STEP}.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
 N_EPISODES = 3
 
@@ -38,10 +39,11 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 
 def make_eval_env():
     env = gym.make(ENV_ID, render_mode="rgb_array")
-    # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-    # env = IgnoreAngleTerminationWrapper(env)
+    env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+    env = IgnoreAngleTerminationWrapper(env)
     env = DiscreteActionWrapper(env)
-    env = RGBObsWrapper(env)  
+    # env = RGBObsWrapper(env)  
+    env = Gray84ObsWrapper(env, size=84)
     return env
 
 def main():
@@ -102,9 +104,12 @@ def main():
 
         # preprocess + stack inicial
         obs = np.ascontiguousarray(obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
-        frame = preprocess_rgb_batch_torch(obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84) uint8
-        state = frame.repeat(1, 4, 1, 1).contiguous()                                  # (1,4,84,84) uint8
-
+        # frame = preprocess_rgb_batch_torch(obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84) uint8
+        # state = frame.repeat(1, 4, 1, 1).contiguous()                                  # (1,4,84,84) uint8
+        
+        frame = torch.from_numpy(obs).unsqueeze(0).unsqueeze(1)    # (1,1,84,84) uint8
+        state = frame.repeat(1, 4, 1, 1).contiguous()       # (1,4,84,84) uint8
+        
         ep_return = 0.0
         step = 0
 
@@ -119,8 +124,11 @@ def main():
 
             # update stack
             next_obs = np.ascontiguousarray(next_obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
-            next_frame = preprocess_rgb_batch_torch(next_obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84)
-            state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
+            # next_frame = preprocess_rgb_batch_torch(next_obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84)
+            # state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
+            
+            next_frame = torch.from_numpy(next_obs).unsqueeze(0).unsqueeze(1)    # (1,1,84,84) uint8
+            state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()       # (1,4,84,84) uint8
 
             done = terminated or truncated
             if done:
