@@ -118,6 +118,7 @@ def main():
     obs, info = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (batch de stacks de frames)
     state = to_uint8_stack(obs) # Convertimos la observación inicial a uint8 y al formato (B,4,84,84) para el buffer
 
+    target_update_steps = max(1, TARGET_UPDATE // NUM_ENVS)
     # Frame inicial -> stack 4
     
     # frame = preprocess_rgb_batch_torch(obs, out_size=84, device="cpu") # (B,1,84,84) uint8
@@ -139,9 +140,12 @@ def main():
     global_step = 0
 
     pbar = tqdm(total=TOTAL_STEPS, desc="train_steps")
-    while global_step < TOTAL_STEPS:
+    # while global_step < TOTAL_STEPS:
+    for step in tqdm(range(TOTAL_STEPS)):
     # for it in tqdm(range(total_iters)):
-        eps = epsilon(global_step, EPS_END, EPS_START, 
+        # eps = epsilon(global_step, EPS_END, EPS_START, 
+        #               START_DECAY, EPS_DECAY) # Calculamos el valor de epsilon para esta etapa del entrenamiento (decay lineal)
+        eps = epsilon(step, EPS_END, EPS_START, 
                       START_DECAY, EPS_DECAY) # Calculamos el valor de epsilon para esta etapa del entrenamiento (decay lineal)
 
         # # epsilon-greedy (batch)
@@ -169,8 +173,8 @@ def main():
         if (~rand_mask).any():
             with torch.no_grad():
                 s = state[~rand_mask].to(DEVICE, non_blocking=True).float().div_(255.0)
-                q = q_net(s)
-                actions[~rand_mask] = q.argmax(dim=1).detach().cpu().numpy().astype(np.int64)
+                q = q_net(s).argmax(dim=1).cpu().numpy()
+            actions[~rand_mask] = q
 
         # Ejecutamos la acción en el entorno vectorizado
         next_obs, rewards, terminated, truncated, infos = env.step(actions)
@@ -240,7 +244,8 @@ def main():
                 writer.add_scalar("debug/final_obs_count", int(np.sum(fm)), global_step)
         
         # # --- reset SOLO de los entornos que han terminado ---
-        if np.any(episode_done):
+        # if np.any(episode_done):
+        if episode_done.any():
             # Para los envs reseteados, reiniciamos el stack con su primer frame
             done_idx = np.where(episode_done)[0]
             for i in done_idx: 
@@ -250,7 +255,9 @@ def main():
                 episode_rewards[i] = 0.0
                 episode_lengths[i] = 0
 
-        if global_step >= START_TRAINING:
+            state, _ = env.reset(seed=seeds)
+
+        if len(buffer) > START_TRAINING:
             states_b, actions_t, reward_t, next_states_b, dones_t = buffer.sample(BATCH_SIZE)
             # buffer.sample ya devuelve tensores en DEVICE (según tu implementación)
             q_values = q_net(states_b).gather(1, actions_t.unsqueeze(1)).squeeze(1)
@@ -338,9 +345,10 @@ def main():
                     
             #         writer.add_scalar("debug/done_mean", float(dones_t.mean().item()), global_step)
 
-        if should_update_target(global_step, TARGET_UPDATE, NUM_ENVS):
+        # if should_update_target(global_step, TARGET_UPDATE, NUM_ENVS):
+        #     target_net.load_state_dict(q_net.state_dict())
+        if step % target_update_steps == 0:
             target_net.load_state_dict(q_net.state_dict())
-
 
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
         # if (global_step % 250_000 == 0) < NUM_ENVS and global_step > 0 or global_step == TOTAL_STEPS - 1:
@@ -361,7 +369,7 @@ def main():
             # eval_env = Gray84ObsWrapper(eval_env, size=84)
 
             for ep in tqdm(range(10)):
-                obs_eval, _ = eval_env.reset() # Semilla diferente para el test de evaluación para mayor diversidad
+                obs_eval, _ = eval_env.reset(seed=SEED + 10_000 + ep) # Semilla diferente para el test de evaluación para mayor diversidad
                 obs_eval_b = obs_eval[None, ...] # (1,H,W,3) uint8
                 state_eval = to_uint8_stack(obs_eval_b) # (1,4,84,84) uint8, stack inicial con 4 frames iguales
 
