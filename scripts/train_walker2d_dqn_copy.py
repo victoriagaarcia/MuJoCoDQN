@@ -165,7 +165,8 @@ def main():
         next_obs, rewards, terminated, truncated, infos = env.step(actions)
         # next_frame = env.render() # Renderizamos el entorno para obtener los frames RGB (si el entorno lo soporta)
         done = np.logical_or(terminated, truncated)
-        
+        done_boot = terminated
+
         if global_step % 10_000 < NUM_ENVS:
             m = next_obs.mean(axis=(1,2,3))
             s = next_obs.std(axis=(1,2,3))
@@ -209,7 +210,7 @@ def main():
             actions=actions,
             rewards=rewards,
             next_states=next_state,
-            dones=done
+            dones=done_boot
         )
         
         if global_step % 10_000 < NUM_ENVS:
@@ -220,18 +221,14 @@ def main():
                 fm = infos.get("_final_observation", done)
                 writer.add_scalar("debug/final_obs_count", int(np.sum(fm)), global_step)
         # # --- reset SOLO de los entornos que han terminado ---
-        # if np.any(done):
-        #     reset_obs, reset_infos = env.reset()
-
-        #     # Para los envs reseteados, reiniciamos el stack con su primer frame
-        #     done_idx = np.where(done)[0]
-
-        #     reset_frame = preprocess_rgb_batch_torch(reset_obs[done_idx], out_size=84, device="cpu")  # (k,1,84,84)
-        #     reset_stack = reset_frame.repeat(1, 4, 1, 1).contiguous()                                 # (k,4,84,84)
-
-        #     # OJO: next_state es lo que guardas como s' en el buffer (terminal incluido).
-        #     # Para continuar el rollout, debemos usar estado reseteado en esos índices:
-        #     next_state[done_idx] = reset_stack
+        if np.any(done):
+            # Para los envs reseteados, reiniciamos el stack con su primer frame
+            done_idx = np.where(done)[0]
+            reset_frame = preprocess_rgb_batch_torch(next_obs[done_idx], out_size=84, device="cpu")  # (k,1,84,84)
+            reset_stack = reset_frame.repeat(1, 4, 1, 1).contiguous()                                 # (k,4,84,84
+            # OJO: next_state es lo que guardas como s' en el buffer (terminal incluido).
+            # Para continuar el rollout, debemos usar estado reseteado en esos índices:
+            next_state[done_idx] = reset_stack
 
         state = next_state # Actualizamos el estado actual al siguiente estado para la próxima iteración
         
