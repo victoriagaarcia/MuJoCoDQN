@@ -95,6 +95,13 @@ def main():
     target_net.load_state_dict(q_net.state_dict()) # Inicializamos la red objetivo con los mismos pesos que la red online
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
+    
+    opt_param_ids = {id(p) for g in optimizer.param_groups for p in g['params']}
+    net_param_ids = {id(p) for p in q_net.parameters()}
+    
+    print("optimizer params", len(opt_param_ids), "net params", len(net_param_ids))
+    print("missing in optimizer", len(net_param_ids - opt_param_ids))
+    
     buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device=DEVICE) 
 
     seeds = [SEED + i for i in range(NUM_ENVS)] # Semillas diferentes para cada entorno paralelo para mayor diversidad de experiencias
