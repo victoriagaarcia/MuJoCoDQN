@@ -6,6 +6,28 @@ from collections import deque
 # =========================================================
 # Preprocesado de píxeles
 # =========================================================
+import cv2
+import numpy as np
+import gymnasium as gym
+
+class Gray84ObsWrapper(gym.ObservationWrapper):
+    """
+    Devuelve observación grayscale 84x84 uint8.
+    output: (84,84) uint8
+    """
+    def __init__(self, env, size=84):
+        super().__init__(env)
+        self.size = size
+        self.observation_space = gym.spaces.Box(
+            low=0, high=255, shape=(size, size), dtype=np.uint8
+        )
+
+    def observation(self, obs):
+        frame = self.env.render()  # (H,W,3) uint8
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        gray = cv2.resize(gray, (self.size, self.size), interpolation=cv2.INTER_AREA)
+        return gray.astype(np.uint8)
+
 
 class RGBObsWrapper(gym.ObservationWrapper):
     """
@@ -13,9 +35,9 @@ class RGBObsWrapper(gym.ObservationWrapper):
     """
     def __init__(self, env):
         super().__init__(env)
-        self.env.reset()
-        frame = self.env.render() # Renderizamos un frame para obtener su tamaño original
-        h, w, c = frame.shape
+        # self.env.reset()
+        # frame = self.env.render() # Renderizamos un frame para obtener su tamaño original
+        h, w, c = 480, 480, 3 # Asumimos que el renderizado es RGB con tamaño 480x480 (ajustar si es diferente)
         
         self.observation_space = gym.spaces.Box(
             low=0,
@@ -130,44 +152,6 @@ class ForwardAliveSmoothReward(gym.Wrapper):
 #     """
 #     def __init__(self, env, k=4, size=84):
 #         super().__init__(env)
-# class PixelStackWrapper(gym.Wrapper):
-#     """
-#     Convierte la observación en un stack de K frames preprocesados
-#     Shape final: (K, 84, 84)
-#     """
-#     def __init__(self, env, k=4, size=84):
-#         super().__init__(env)
-#         self.k = k
-#         self.size = size
-#         self.frames = deque(maxlen=k)
-
-#         self.observation_space = gym.spaces.Box(
-#             low=0.0,
-#             high=1.0,
-#             shape=(k, size, size),
-#             dtype=np.float32,
-#         )
-
-#     def reset(self, **kwargs):
-#         _, info = self.env.reset(**kwargs)
-#         frame = self.env.render() # Obtiene el frame RGB actual
-#         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
-
-#         self.frames.clear()
-#         for _ in range(self.k):
-#             self.frames.append(p) # Apilamos K frames idénticos al inicio (apilamos 4 para captar movimiento)
-
-#         return np.stack(self.frames, axis=0), info
-
-#     def step(self, action):
-#         obs, reward, terminated, truncated, info = self.env.step(action)
-#         frame = self.env.render()
-#         p = preprocess(frame, self.size)
-
-#         self.frames.append(p) # Apilamos el nuevo frame, descartando el más antiguo automáticamente por el maxlen=4
-
-#         return np.stack(self.frames, axis=0), reward, terminated, truncated, info
-
 #         self.k = k
 #         self.size = size
 #         self.frames = deque(maxlen=k)
@@ -248,7 +232,7 @@ def make_discrete_action_set(action_dim: int):
     a1 = 0.4
     
     # a2 = 0.85
-    a2 = 3.0  
+    a2 = 1.0  
     # chat sugiere a1=0.25 y a2=0.35 ¿?
     
     actions = [Z]
@@ -271,9 +255,9 @@ def make_discrete_action_set_legprototype(action_dim: int):
     
     # Magnitudes (suaves para evitar inestabilidad al inicio)
     # a = 0.25 
-    a = 0.45
+    a = 1.0
     # b = 0.15 
-    b = 0.2
+    b = 0.25
 
     actions = []
 
@@ -283,27 +267,40 @@ def make_discrete_action_set_legprototype(action_dim: int):
     # Acción de idle (ninguna acción)
     add(Z)
     
-    # 0) empuje global suave hacia adelante (arranque)
-    add(np.full(action_dim, +b, dtype=np.float32))
+    # # 0) empuje global suave hacia adelante (arranque)
+    # add(np.full(action_dim, +b, dtype=np.float32))
     
-    # 1) empuje global suave hacia atrás (freno)
-    add(np.full(action_dim, -b, dtype=np.float32))  
+    # # 1) dobla tobillo pierna 1 (empuje hacia adelante)
+    add(np.array([0, 0, 0, 0, 0, +a], dtype=np.float32))
+    add(np.array([0, 0, 0, 0, 0, -a], dtype=np.float32))
+    
+    # dobla tobillo pierna 2 (empuje hacia adelante)
+    add(np.array([0, 0, +a, 0, 0, 0], dtype=np.float32))
+    add(np.array([0, 0, a, 0, 0, 0], dtype=np.float32))
     
     # 2) empuja pierna 1 (extiende rodilla + empuja tobillo + hip suave)
-    add(np.array([+b, -a, +a, 0, 0, 0], dtype=np.float32))
-
+    add(np.array([0, -a, +a, 0, 0, 0], dtype=np.float32))
+    add(np.array([0, +a, -a, 0, 0, 0], dtype=np.float32))
+    
     # 3) empuja pierna 2
-    add(np.array([0, 0, 0, +b, -a, +a], dtype=np.float32))
-
+    add(np.array([0, 0, 0, 0, -a, +a], dtype=np.float32))
+    add(np.array([0, 0, 0, 0, +a, -a], dtype=np.float32))
+    
     # 4) recupera pierna 1 (flexiona rodilla)
     add(np.array([0, +a, 0, 0, 0, 0], dtype=np.float32))
+    add(np.array([0, -a, 0, 0, 0, 0], dtype=np.float32))
 
-    # 5) recupera pierna 2
+    # 5) recupera pierna 2 (flexiona rodilla)
     add(np.array([0, 0, 0, 0, +a, 0], dtype=np.float32))
+    add(np.array([0, 0, 0, 0, -a, 0], dtype=np.float32))
 
     # 6) estabiliza (hips hacia atrás suave para no “tirarse”)
-    add(np.array([-b, 0, 0, -b, 0, 0], dtype=np.float32))
-
+    # add(np.array([-b, 0, 0, -b, 0, 0], dtype=np.float32)
+    add(np.array([0, 0, 0, +a, 0, 0], dtype=np.float32))
+    add(np.array([0, 0, 0, -a, 0, 0], dtype=np.float32))
+    add(np.array([+a, 0, 0, 0, 0, 0], dtype=np.float32))
+    add(np.array([-a, 0, 0, 0, 0, 0], dtype=np.float32))
+    
     return np.stack(actions, axis=0)
     
 
@@ -315,8 +312,8 @@ class DiscreteActionWrapper(gym.ActionWrapper):
         super().__init__(env)
         assert isinstance(env.action_space, gym.spaces.Box) # Comprobamos que el espacio de acciones original es continuo
 
-        self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
-        # self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
+        # self._actions = make_discrete_action_set(env.action_space.shape[0]) # Creamos el conjunto de acciones discretas
+        self._actions = make_discrete_action_set_legprototype(env.action_space.shape[0]) # Usamos el conjunto de acciones prototipo específico para Walker2D
         self.action_space = gym.spaces.Discrete(self._actions.shape[0]) # Redefinimos el espacio de acciones a discreto con el número de acciones prototipo
 
     def action(self, act_idx):

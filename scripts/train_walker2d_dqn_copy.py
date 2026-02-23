@@ -12,9 +12,11 @@ from gymnasium.vector import AsyncVectorEnv
 
 from src.dqn_copy import QNetwork, ReplayBuffer
 from src.envs_copy import (
-    DiscreteActionWrapper, 
+    DiscreteActionWrapper,
+    Gray84ObsWrapper,
     ForwardAliveSmoothReward, 
     IgnoreAngleTerminationWrapper,
+    
     RGBObsWrapper
 )
 from .utils import (
@@ -35,7 +37,7 @@ BUFFER_SIZE = 200_000 # Capacidad máxima del replay buffer (número de transici
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
 LR = 1e-4
-TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
+TARGET_UPDATE = 10_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
 START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
@@ -70,12 +72,12 @@ EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resul
 
 def make_env(rank:int):
     def _thunk():
-        env = gym.make(ENV_ID, render_mode="rgb_array")
+        env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
         # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
         # env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
-        env = RGBObsWrapper(env)
-        return env
+        # env = RGBObsWrapper(env)
+        env = Gray84ObsWrapper(env, size=84) 
     return _thunk
 
 def main():
@@ -112,9 +114,13 @@ def main():
     obs, info = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (batch de stacks de frames)
     
     # Frame inicial -> stack 4
+    """
     frame = preprocess_rgb_batch_torch(obs, out_size=84, device="cpu") # (B,1,84,84) uint8
     state = frame.repeat(1, 4, 1, 1).contiguous()
-    
+    """
+    frame = torch.from_numpy(obs).unsqueeze(1)          # (B,1,84,84) uint8
+    state = frame.repeat(1, 4, 1, 1).contiguous()       # (B,4,84,84) uint8
+
     # obs_chw = transpose_obs_batch(obs) # Transponemos las observaciones al formato (B, C, H, W) 
     # state = np.repeat(obs_chw, 4, axis=1) # Creamos el stack inicial de 4 frames repitiendo la misma observación 4 veces
 
@@ -182,8 +188,13 @@ def main():
         episode_lengths += 1
         
         # preprocess next frames (batch)
+        """
         next_frame = preprocess_rgb_batch_torch(next_obs, out_size=84, device="cpu") # (B,1,84,84) uint8
         next_state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()        # (B,4,84,84
+        """
+        next_frame = torch.from_numpy(next_obs).unsqueeze(1)    # (B,1,84,84) uint8
+        next_state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
+        
         # if isinstance(infos, dict) and "final_observation" in infos:
         #     final_obs = infos["final_observation"]
         #     final_mask = infos.get("_final_observation", done) 
@@ -376,7 +387,7 @@ def main():
             q_net.eval()
             test_rewards = []
             
-            eval_env = gym.make(ENV_ID, render_mode="rgb_array")
+            eval_env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
             # eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
             # eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
