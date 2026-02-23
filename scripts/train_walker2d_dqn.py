@@ -169,7 +169,7 @@ def main():
             final_obs = infos["final_observation"]
             final_mask = infos.get("_final_observation", done) 
             
-            idx = np.where(final_mask & done)[0]
+            idx = np.where(final_mask)[0]
             if idx.size > 0:
                 term_frame = preprocess_rgb_batch_torch(final_obs[idx], out_size=84, device="cpu")
                 next_state[idx] = torch.cat([state[idx, 1:], term_frame], dim=1).contiguous()
@@ -183,19 +183,19 @@ def main():
             dones=done
         )
         
-        # --- reset SOLO de los entornos que han terminado ---
-        if np.any(done):
-            reset_obs, reset_infos = env.reset()
+        # # --- reset SOLO de los entornos que han terminado ---
+        # if np.any(done):
+        #     reset_obs, reset_infos = env.reset()
 
-            # Para los envs reseteados, reiniciamos el stack con su primer frame
-            done_idx = np.where(done)[0]
+        #     # Para los envs reseteados, reiniciamos el stack con su primer frame
+        #     done_idx = np.where(done)[0]
 
-            reset_frame = preprocess_rgb_batch_torch(reset_obs[done_idx], out_size=84, device="cpu")  # (k,1,84,84)
-            reset_stack = reset_frame.repeat(1, 4, 1, 1).contiguous()                                 # (k,4,84,84)
+        #     reset_frame = preprocess_rgb_batch_torch(reset_obs[done_idx], out_size=84, device="cpu")  # (k,1,84,84)
+        #     reset_stack = reset_frame.repeat(1, 4, 1, 1).contiguous()                                 # (k,4,84,84)
 
-            # OJO: next_state es lo que guardas como s' en el buffer (terminal incluido).
-            # Para continuar el rollout, debemos usar estado reseteado en esos índices:
-            next_state[done_idx] = reset_stack
+        #     # OJO: next_state es lo que guardas como s' en el buffer (terminal incluido).
+        #     # Para continuar el rollout, debemos usar estado reseteado en esos índices:
+        #     next_state[done_idx] = reset_stack
                 
         state = next_state # Actualizamos el estado actual al siguiente estado para la próxima iteración
         
