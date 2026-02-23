@@ -35,7 +35,7 @@ from .utils import (
 ENV_ID = "Walker2d-v5"
 
 TOTAL_STEPS = 5_000_000 # Número total de pasos de interacción con el entorno (no episodios)
-BUFFER_SIZE = 200_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
+BUFFER_SIZE = 500_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
 LR = 1e-4
@@ -49,7 +49,7 @@ EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae lineal
 START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
 
 SEED = 42 # Semilla para reproducibilidad
-NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento 
+NUM_ENVS = 8 # Número de entornos paralelos para entrenamiento 
 
 # Configuracion de reward
 ALPHA_RW = 2.0 # 1.5
@@ -75,8 +75,8 @@ EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resul
 def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
-        env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-        env = IgnoreAngleTerminationWrapper(env)
+        # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+        # env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         # env = RGBObsWrapper(env)
         # env = Gray84ObsWrapper(env, size=84) 
@@ -353,8 +353,8 @@ def main():
             test_rewards = []
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
-            eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-            eval_env = IgnoreAngleTerminationWrapper(eval_env)
+            # eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+            # eval_env = IgnoreAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
             eval_env = PixelStackWrapper(eval_env, k=4, size=84) # Mismo preprocesamiento que en el entrenamiento para que la red pueda procesar las observaciones correctamente
             # eval_env = RGBObsWrapper(eval_env)

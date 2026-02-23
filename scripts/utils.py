@@ -58,7 +58,6 @@ def preprocess(frame, size=84):
     """
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     frame = cv2.resize(frame, (size, size), interpolation=cv2.INTER_AREA) # Normaliza imagen a 84x84
-    frame = frame.astype(np.float32) / 255.0 # Normaliza a [0,1]
     return frame
 
 def to_uint8_stack(obs: np.ndarray) -> torch.Tensor:
