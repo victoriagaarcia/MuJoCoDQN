@@ -9,10 +9,12 @@ from src.envs_copy import (
     ForwardAliveSmoothReward, 
     IgnoreAngleTerminationWrapper,
     RGBObsWrapper,
-    Gray84ObsWrapper
+    Gray84ObsWrapper,
+    PixelStackWrapper
 )
 from .utils import (
-    preprocess_rgb_batch_torch
+    preprocess_rgb_batch_torch,
+    to_uint8_stack
 )
 
 # -----------------------------
@@ -21,8 +23,8 @@ from .utils import (
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb23_20_23_57"
-CHECKPOINT_STEP = "2750000"
+MODEL_DATE = "Feb23_22_47_02"
+CHECKPOINT_STEP = "1750000"
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
 MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{CHECKPOINT_STEP}.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
@@ -39,11 +41,12 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 
 def make_eval_env():
     env = gym.make(ENV_ID, render_mode="rgb_array")
-    env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-    env = IgnoreAngleTerminationWrapper(env)
+    # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
+    # env = IgnoreAngleTerminationWrapper(env)
     env = DiscreteActionWrapper(env)
     # env = RGBObsWrapper(env)  
-    env = Gray84ObsWrapper(env, size=84)
+    # env = Gray84ObsWrapper(env, size=84)
+    env = PixelStackWrapper(env, k=4, size=84)
     return env
 
 def main():
@@ -101,14 +104,14 @@ def main():
 #    print(f"Videos saved in: {VIDEO_DIR}")
 
         obs, _ = env.reset(seed=42 + 10_000 + ep)   # obs: (H,W,3) uint8 (porque RGBObsWrapper)
-
+        state = to_uint8_stack(obs[None, ...])  # (H,W,3) uint8
         # preprocess + stack inicial
-        obs = np.ascontiguousarray(obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
+        # obs = np.ascontiguousarray(obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
         # frame = preprocess_rgb_batch_torch(obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84) uint8
         # state = frame.repeat(1, 4, 1, 1).contiguous()                                  # (1,4,84,84) uint8
         
-        frame = torch.from_numpy(obs).unsqueeze(0).unsqueeze(1)    # (1,1,84,84) uint8
-        state = frame.repeat(1, 4, 1, 1).contiguous()       # (1,4,84,84) uint8
+        # frame = torch.from_numpy(obs).unsqueeze(0).unsqueeze(1)    # (1,1,84,84) uint8
+        # state = frame.repeat(1, 4, 1, 1).contiguous()       # (1,4,84,84) uint8
         
         ep_return = 0.0
         step = 0
@@ -123,12 +126,14 @@ def main():
             step += 1
 
             # update stack
-            next_obs = np.ascontiguousarray(next_obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
+            # next_obs = np.ascontiguousarray(next_obs)  # Aseguramos que la observación es contigua en memoria para evitar warnings de PyTorch
             # next_frame = preprocess_rgb_batch_torch(next_obs[None, ...], out_size=84, device="cpu")  # (1,1,84,84)
             # state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()
             
-            next_frame = torch.from_numpy(next_obs).unsqueeze(0).unsqueeze(1)    # (1,1,84,84) uint8
-            state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()       # (1,4,84,84) uint8
+            # next_frame = torch.from_numpy(next_obs).unsqueeze(0).unsqueeze(1)    # (1,1,84,84) uint8
+            # state = torch.cat([state[:, 1:], next_frame], dim=1).contiguous()       # (1,4,84,84) uint8
+
+            state = to_uint8_stack(next_obs[None, ...])  # (1,4,84,84) uint8
 
             done = terminated or truncated
             if done:
