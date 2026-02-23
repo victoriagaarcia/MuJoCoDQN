@@ -99,8 +99,8 @@ def main():
     opt_param_ids = {id(p) for g in optimizer.param_groups for p in g['params']}
     net_param_ids = {id(p) for p in q_net.parameters()}
     
-    print("optimizer params", len(opt_param_ids), "net params", len(net_param_ids))
-    print("missing in optimizer", len(net_param_ids - opt_param_ids))
+    # print("optimizer params", len(opt_param_ids), "net params", len(net_param_ids))
+    # print("missing in optimizer", len(net_param_ids - opt_param_ids))
     
     buffer = ReplayBuffer(BUFFER_SIZE, obs_shape=(4,84,84), device=DEVICE) 
 
@@ -284,7 +284,7 @@ def main():
                 if p.grad is not None:
                     gcnt += 1
                     gmax = max(gmax, float(p.grad.detach().abs().max().item()))
-            print("grad params:", gcnt, "grad_abs_max:", gmax)
+            # print("grad params:", gcnt, "grad_abs_max:", gmax)
             
             # after backward (y antes del step)
             with torch.no_grad():
@@ -306,8 +306,8 @@ def main():
                 if p.grad is not None:
                     n_with_grad += 1
 
-            print("n_with_state:", n_with_state, "n_with_grad:", n_with_grad,
-                "exp_avg_max_all:", ea_max, "exp_avg_sq_max_all:", eas_max)
+            # print("n_with_state:", n_with_state, "n_with_grad:", n_with_grad,
+            #   "exp_avg_max_all:", ea_max, "exp_avg_sq_max_all:", eas_max)
             # with torch.no_grad():
             #     max_change = 0.0
             #     for k, v in q_net.state_dict().items():
