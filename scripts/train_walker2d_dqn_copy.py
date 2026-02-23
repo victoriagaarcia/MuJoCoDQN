@@ -292,18 +292,34 @@ def main():
             # ---- STEP ----
             optimizer.step()
 
-            with torch.no_grad():
-                max_change = 0.0
-                for k, v in q_net.state_dict().items():
-                    max_change = max(max_change, (v - before[k]).abs().max().item())
-            print("STATE_DICT max_change:", max_change)
+            ea_max = 0.0
+            eas_max = 0.0
+            n_with_state = 0
+            n_with_grad = 0
 
-            p0 = next(q_net.parameters())
-            st = optimizer.state.get(p0, {})
-            ea = st.get("exp_avg", None)
-            eas = st.get("exp_avg_sq", None)
-            print("has_state:", bool(st), "exp_avg_max:", None if ea is None else ea.abs().max().item(),
-                "exp_avg_sq_max:", None if eas is None else eas.abs().max().item())
+            for p in q_net.parameters():
+                st = optimizer.state.get(p, None)
+                if st is not None and "exp_avg" in st:
+                    n_with_state += 1
+                    ea_max = max(ea_max, float(st["exp_avg"].abs().max().item()))
+                    eas_max = max(eas_max, float(st["exp_avg_sq"].abs().max().item()))
+                if p.grad is not None:
+                    n_with_grad += 1
+
+            print("n_with_state:", n_with_state, "n_with_grad:", n_with_grad,
+                "exp_avg_max_all:", ea_max, "exp_avg_sq_max_all:", eas_max)
+            # with torch.no_grad():
+            #     max_change = 0.0
+            #     for k, v in q_net.state_dict().items():
+            #         max_change = max(max_change, (v - before[k]).abs().max().item())
+            # print("STATE_DICT max_change:", max_change)
+
+            # p0 = next(q_net.parameters())
+            # st = optimizer.state.get(p0, {})
+            # ea = st.get("exp_avg", None)
+            # eas = st.get("exp_avg_sq", None)
+            # print("has_state:", bool(st), "exp_avg_max:", None if ea is None else ea.abs().max().item(),
+            #     "exp_avg_sq_max:", None if eas is None else eas.abs().max().item())
 
             # # ---- CHECK CHANGE ----
             # with torch.no_grad():
