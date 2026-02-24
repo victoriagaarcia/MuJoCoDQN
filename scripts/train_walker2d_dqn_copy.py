@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from turtle import done
+# from turtle import done
 
 import gymnasium as gym
 import numpy as np
@@ -77,7 +77,7 @@ def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
         # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-        env = ReduceAngleTerminationWrapper(env)
+        # env = ReduceAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         # env = RGBObsWrapper(env)
         # env = Gray84ObsWrapper(env, size=84) 
@@ -183,6 +183,14 @@ def main():
         # next_frame = env.render() # Renderizamos el entorno para obtener los frames RGB (si el entorno lo soporta)
         episode_done = np.logical_or(terminated, truncated)
         done_boot = terminated
+
+        # Estadisticas de las rewards dentro de info y todas empiezan con debug/
+        writer.add_scalar("rewards/base", float(np.mean(infos.get("debug/base", np.nan))), step)
+        writer.add_scalar("rewards/speed_bonus", float(np.mean(infos.get("debug/speed_bonus", np.nan))), step)
+        writer.add_scalar("rewards/height_pen", float(np.mean(infos.get("debug/height_pen", np.nan))), step)
+        writer.add_scalar("rewards/angle_pen", float(np.mean(infos.get("debug/angle_pen", np.nan))), step)
+        writer.add_scalar("rewards/alive_bonus", float(np.mean(infos.get("debug/alive_bonus", np.nan))), step)
+        
 
         # if global_step % 10_000 < NUM_ENVS:
             # m = next_obs.mean(axis=(1,2,3))
@@ -364,7 +372,7 @@ def main():
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
             # eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-            eval_env = ReduceAngleTerminationWrapper(eval_env)
+            # eval_env = ReduceAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
             eval_env = ProgressWithSafetyShaping(eval_env)
             eval_env = PixelStackWrapper(eval_env, k=4, size=84) # Mismo preprocesamiento que en el entrenamiento para que la red pueda procesar las observaciones correctamente
@@ -390,6 +398,7 @@ def main():
 
                     next_obs_eval, reward, terminated, truncated, infos = eval_env.step(action) # era test_state antes de next_obs
                     test_episode_reward += float(reward)
+                    
                     
                     # next_obs_eval_np = np.ascontiguousarray(next_obs)
                     # # preprocess next frame + update stack

@@ -2,6 +2,7 @@ import gymnasium as gym
 import numpy as np
 import cv2
 from collections import deque 
+import matplotlib.pyplot as plt
 
 # =========================================================
 # Preprocesado de píxeles
@@ -108,8 +109,7 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         if forward is None:
             forward = vx
         if ctrl is None:
-            # ctrl = 0.0
-            ctrl = 0.001 * float(np.sum(np.square(a)))
+            ctrl = 0.0
 
         # Healthy: usamos el criterio interno del entorno
         healthy = 1.0 if getattr(self.env.unwrapped, "is_healthy", True) else 0.0
@@ -122,20 +122,12 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         # Penaliza ir hacia atrás
         backward_pen = max(0.0, -vx)
 
-        # Penaliza cambios bruscos de acción (suavidad)
-        a = np.array(action, dtype=np.float32)
-        smooth_pen = 0.0
-        if self.prev_action is not None:
-            smooth_pen = float(np.sum((a - self.prev_action) ** 2))
-        self.prev_action = a
-
         new_reward = (
             # self.alpha * 1.0 * (vx > 0.0)
             self.alpha * max(0.0, vx)
             + self.beta * float(healthy)
             - self.gamma * float(ctrl)
             - self.delta * float(backward_pen)
-            - self.lam * float(smooth_pen)
         )
 
         # Debug en info (útil para análisis)
@@ -143,7 +135,6 @@ class ForwardAliveSmoothReward(gym.Wrapper):
         info["shaping/healthy"] = float(healthy)
         info["shaping/ctrl"] = float(ctrl)
         info["shaping/backward_pen"] = float(backward_pen)
-        info["shaping/smooth_pen"] = float(smooth_pen)
         info["shaping/reward"] = float(new_reward)
 
         return obs, new_reward, terminated, truncated, info
@@ -163,12 +154,12 @@ class ProgressWithSafetyShaping(gym.Wrapper):
         self,
         env,
         z_ref: float = 1.10,          # altura "mínima de seguridad" (no obliga a ir alto, solo evita colapso)
-        angle_ref: float = 1.20,      # umbral de inclinación permisivo (radianes aprox)
-        w_z: float = 0.07,            # peso penalización altura
-        w_ang: float = 0.03,          # peso penalización inclinación
+        angle_ref: float = 0.7,      # umbral de inclinación permisivo (radianes aprox)
+        w_z: float = 0.7,            # peso penalización altura
+        w_ang: float = 0.3,          # peso penalización inclinación
         w_smooth: float = 0.0,        # 0.0 = desactivado (si quieres activarlo: 0.005–0.02)
-        alive_bonus: float = 0.02,    # bonus pequeño por seguir vivo
-        speed_bonus: float = 0.03,    # bonus suave por velocidad hacia delante (tanh)
+        alive_bonus: float = 0.2,    # bonus pequeño por seguir vivo
+        speed_bonus: float = 0.3,    # bonus suave por velocidad hacia delante (tanh)
     ):
         super().__init__(env)
         self.z_ref = float(z_ref)
@@ -188,9 +179,10 @@ class ProgressWithSafetyShaping(gym.Wrapper):
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-
+        
         # Base: reward por defecto del entorno
         shaped = float(reward)
+        info["debug/base"] = shaped
 
         # Estado interno MuJoCo
         data = self.env.unwrapped.data
@@ -200,13 +192,16 @@ class ProgressWithSafetyShaping(gym.Wrapper):
 
         # 1) Avance: bonus suave y saturado (no clip duro)
         shaped += self.speed_bonus * float(np.tanh(vx))
-
+        info["debug/speed_bonus"] = self.speed_bonus * float(np.tanh(vx))
+    
         # 2) Seguridad: penaliza solo si está "demasiado bajo" (hinge)
         shaped -= self.w_z * max(0.0, self.z_ref - z)
-
+        info["debug/height_pen"] = self.w_z * max(0.0, self.z_ref - z)
+    
         # 3) Seguridad: penaliza solo si está "demasiado inclinado" (hinge)
         shaped -= self.w_ang * max(0.0, abs(ang) - self.angle_ref)
-
+        info["debug/angle_pen"] = self.w_ang * max(0.0, abs(ang) - self.angle_ref)
+    
         # 4) Suavidad (opcional): si action es vector continuo, penaliza jerk
         #    Si action es discreta (int), w_smooth debería estar a 0.0.
         if self.w_smooth > 0.0:
@@ -218,6 +213,9 @@ class ProgressWithSafetyShaping(gym.Wrapper):
         # 5) Alive bonus pequeño (densifica sin dominar)
         if not (terminated or truncated):
             shaped += self.alive_bonus
+            info["debug/alive_bonus"] = self.alive_bonus
+        else: 
+            info["debug/alive_bonus"] = 0.0
 
         return obs, shaped, terminated, truncated, info
 
@@ -242,7 +240,14 @@ class PixelStackWrapper(gym.Wrapper):
     def reset(self, **kwargs):
         _, info = self.env.reset(**kwargs)
         frame = self.env.render() # Obtiene el frame RGB actual
+        
+        # # mostramos la imagen original para verificar que se renderiza correctamente
+        # plt.imshow(frame)
+        # plt.savefig("original_frame.png") # Guardamos la imagen original para referencia
+        # 
         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
+        # plt.imshow(p) # Mostramos la imagen preprocesada para verificar que el preprocesado funciona correctamente
+        # plt.savefig("preprocessed_frame.png") # Guardamos la imagen preprocesada para referencia
 
         self.frames.clear()
         for _ in range(self.k):
