@@ -34,7 +34,7 @@ from .utils import (
 
 ENV_ID = "Walker2d-v5"
 
-TOTAL_STEPS = 5_000_000 # Número total de pasos de interacción con el entorno (no episodios)
+TOTAL_STEPS = 8_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 500_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
@@ -45,7 +45,7 @@ START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a en
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
 # EPS_START = 0.1
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
+EPS_DECAY = 4_000_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
 
 SEED = 42 # Semilla para reproducibilidad
@@ -76,7 +76,7 @@ def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
         # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-        # env = IgnoreAngleTerminationWrapper(env)
+        env = IgnoreAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         # env = RGBObsWrapper(env)
         # env = Gray84ObsWrapper(env, size=84) 
@@ -139,7 +139,7 @@ def main():
     # Contador transiciones reales
     global_step = 0
 
-    pbar = tqdm(total=TOTAL_STEPS, desc="train_steps")
+    # pbar = tqdm(total=TOTAL_STEPS, desc="train_steps")
     # while global_step < TOTAL_STEPS:
     for step in tqdm(range(TOTAL_STEPS)):
     # for it in tqdm(range(total_iters)):
@@ -235,13 +235,13 @@ def main():
             dones=done_boot
         )
         
-        if global_step % 10_000 < NUM_ENVS:
+        if step % 10_000 < NUM_ENVS:
             has_final = int(isinstance(infos, dict) and ("final_observation" in infos))
-            writer.add_scalar("debug/has_final_observation", has_final, global_step)
-            writer.add_scalar("debug/buffer_size", len(buffer), global_step)
+            writer.add_scalar("debug/has_final_observation", has_final, step)
+            writer.add_scalar("debug/buffer_size", len(buffer), step)
             if has_final:
                 fm = infos.get("_final_observation", episode_done)
-                writer.add_scalar("debug/final_obs_count", int(np.sum(fm)), global_step)
+                writer.add_scalar("debug/final_obs_count", int(np.sum(fm)), step)
         
         # # --- reset SOLO de los entornos que han terminado ---
         # if np.any(episode_done):
@@ -249,8 +249,8 @@ def main():
             # Para los envs reseteados, reiniciamos el stack con su primer frame
             done_idx = np.where(episode_done)[0]
             for i in done_idx: 
-                writer.add_scalar("episode_reward", float(episode_rewards[i]), global_step)
-                writer.add_scalar("episode_length", int(episode_lengths[i]), global_step)
+                writer.add_scalar("episode_reward", float(episode_rewards[i]), step)
+                writer.add_scalar("episode_length", int(episode_lengths[i]), step)
                 n_episodes += 1
                 episode_rewards[i] = 0.0
                 episode_lengths[i] = 0
@@ -322,10 +322,10 @@ def main():
             #     writer.add_scalar("debug/param_diff_mean", diff_mean, global_step)
             updates_done += 1
 
-            if global_step % LOG_EVERY < NUM_ENVS:
-                writer.add_scalar("loss", loss.item(), global_step)
-                writer.add_scalar("epsilon", eps, global_step)
-                writer.add_scalar("updates_done", updates_done, global_step)
+            if step % LOG_EVERY < NUM_ENVS:
+                writer.add_scalar("loss", loss.item(), step)
+                writer.add_scalar("epsilon", eps, step)
+                writer.add_scalar("updates_done", updates_done, step)
 
             # if global_step % 10_000 < NUM_ENVS:
             #     s, a, r, ns, d = buffer.sample(64)
@@ -353,9 +353,9 @@ def main():
 
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
         # if (global_step % 250_000 == 0) < NUM_ENVS and global_step > 0 or global_step == TOTAL_STEPS - 1:
-        if (global_step % 250_000) < NUM_ENVS and global_step > 0 or global_step >= TOTAL_STEPS - NUM_ENVS:
-            
-            torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{global_step}.pt")
+        # if (global_step % 250_000) < NUM_ENVS and global_step > 0 or global_step >= TOTAL_STEPS - NUM_ENVS:
+        if step % 250_000 == 0 and step > 0 or step >= TOTAL_STEPS - 1:  
+            torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{step}.pt")
             
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
             q_net.eval()
@@ -406,13 +406,13 @@ def main():
             avg_test_reward = float(np.mean(test_rewards))
             eval_env.close()
 
-            print(f"Checkpoint saved at step {global_step}, average test reward over 10 episodes: {avg_test_reward}")
-            writer.add_scalar("avg_test_reward", avg_test_reward, global_step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+            print(f"Checkpoint saved at step {step}, average test reward over 10 episodes: {avg_test_reward}")
+            writer.add_scalar("avg_test_reward", avg_test_reward, step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
             q_net.train() # Volvemos a poner la red en modo entrenamiento después del test de evaluación
     
         # step counters
         global_step += NUM_ENVS
-        pbar.update(NUM_ENVS)
+        # pbar.update(NUM_ENVS)
 
     row = {
         "model_dir": MODEL_DIR[4:],
@@ -441,7 +441,7 @@ def main():
     save_experiment_to_excel(row, EXPERIMENT_XLSX)
     print(f"[Excel] Appended results to {EXPERIMENT_XLSX}")
 
-    pbar.close()
+    # pbar.close()
     env.close()
     writer.close()
     
