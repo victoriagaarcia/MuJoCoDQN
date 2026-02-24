@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 from collections import deque
+import torch.nn as nn
+import torch.optim as optim
 
 # Prioritized Experience Replay: SumTree implementation
 class SumTree:
@@ -209,4 +211,55 @@ class NStepAccumulator:
                 buffer.popleft() # Elimina la transición más antigua para procesar la siguiente
             self.reset_env(env_id) # Limpia la deque del entorno al finalizar el episodio
         
-        return out # Devuelve la lista de transiciones n-step acumuladas (puede contener
+        return out # Devuelve la lista de transiciones n-step acumuladas
+
+
+class NoisyLinear(nn.Module):
+    def __init__(self, in_features, out_features, sigma_init=0.017):
+        super(NoisyLinear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        self.weight_mu = nn.Parameter(torch.empty(out_features, in_features))
+        self.weight_sigma = nn.Parameter(torch.empty(out_features, in_features))
+        self.register_buffer('weight_epsilon', torch.empty(out_features, in_features))
+
+        self.bias_mu = nn.Parameter(torch.empty(out_features))
+        self.bias_sigma = nn.Parameter(torch.empty(out_features))
+        self.register_buffer('bias_epsilon', torch.empty(out_features))
+
+        self.sigma_init = sigma_init
+        self.noise_enabled = True 
+
+        self.reset_parameters()
+        self.reset_noise()
+
+    def reset_parameters(self):
+        mu_range = 1.0 / np.sqrt(self.in_features)
+        nn.init.uniform_(self.weight_mu, -mu_range, mu_range)
+        nn.init.constant_(self.weight_sigma, self.sigma_init / np.sqrt(self.in_features))
+        nn.init.uniform_(self.bias_mu, -mu_range, mu_range)
+        nn.init.constant_(self.bias_sigma, self.sigma_init / np.sqrt(self.in_features))
+
+    def _f(self, x):
+        return x.sign() * (x.abs().sqrt())
+    
+    def reset_noise(self):
+        epsilon_in = self._scale_noise(self.in_features)
+        epsilon_out = self._scale_noise(self.out_features)
+
+        # -----------------------------
+
+    def _scale_noise(self, size):
+        x = torch.randn(size)
+        return x.sign().mul(x.abs().sqrt())
+
+    def forward(self, input):
+        if self.training:
+            weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
+            bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
+        else:
+            weight = self.weight_mu
+            bias = self.bias_mu
+
+        return nn.functional.linear(input, weight, bias)
