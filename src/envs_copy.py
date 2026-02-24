@@ -51,7 +51,7 @@ class RGBObsWrapper(gym.ObservationWrapper):
         return self.env.render()
 
 
-class IgnoreAngleTerminationWrapper(gym.Wrapper):
+class ReduceAngleTerminationWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
 
@@ -148,6 +148,78 @@ class ForwardAliveSmoothReward(gym.Wrapper):
 
         return obs, new_reward, terminated, truncated, info
 
+class ProgressWithSafetyShaping(gym.Wrapper):
+    """
+    Wrapper de reward shaping PARA Walker2d (o similares MuJoCo) pensado para:
+      - Mantener la reward por defecto como base (forward + survive - ctrl_cost)
+      - Incentivar avance SIN forzar postura "bonita"
+      - Penalizar solo situaciones que suelen acabar en caída (altura baja / inclinación extrema)
+      - (Opcional) suavizar cambios bruscos de acción para estabilizar marcha
+
+    Recomendación: úsalo junto a tu IgnoreAngleTerminationWrapper si quieres episodios menos binarios.
+    """
+
+    def __init__(
+        self,
+        env,
+        z_ref: float = 1.10,          # altura "mínima de seguridad" (no obliga a ir alto, solo evita colapso)
+        angle_ref: float = 1.20,      # umbral de inclinación permisivo (radianes aprox)
+        w_z: float = 0.07,            # peso penalización altura
+        w_ang: float = 0.03,          # peso penalización inclinación
+        w_smooth: float = 0.0,        # 0.0 = desactivado (si quieres activarlo: 0.005–0.02)
+        alive_bonus: float = 0.02,    # bonus pequeño por seguir vivo
+        speed_bonus: float = 0.03,    # bonus suave por velocidad hacia delante (tanh)
+    ):
+        super().__init__(env)
+        self.z_ref = float(z_ref)
+        self.angle_ref = float(angle_ref)
+        self.w_z = float(w_z)
+        self.w_ang = float(w_ang)
+        self.w_smooth = float(w_smooth)
+        self.alive_bonus = float(alive_bonus)
+        self.speed_bonus = float(speed_bonus)
+
+        self.prev_action = None
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self.prev_action = None
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        # Base: reward por defecto del entorno
+        shaped = float(reward)
+
+        # Estado interno MuJoCo
+        data = self.env.unwrapped.data
+        z = float(data.qpos[1])       # altura torso
+        ang = float(data.qpos[2])     # ángulo torso
+        vx = float(data.qvel[0])      # velocidad x
+
+        # 1) Avance: bonus suave y saturado (no clip duro)
+        shaped += self.speed_bonus * float(np.tanh(vx))
+
+        # 2) Seguridad: penaliza solo si está "demasiado bajo" (hinge)
+        shaped -= self.w_z * max(0.0, self.z_ref - z)
+
+        # 3) Seguridad: penaliza solo si está "demasiado inclinado" (hinge)
+        shaped -= self.w_ang * max(0.0, abs(ang) - self.angle_ref)
+
+        # 4) Suavidad (opcional): si action es vector continuo, penaliza jerk
+        #    Si action es discreta (int), w_smooth debería estar a 0.0.
+        if self.w_smooth > 0.0:
+            a = np.array(action, dtype=np.float32)
+            if self.prev_action is not None:
+                shaped -= self.w_smooth * float(np.sum((a - self.prev_action) ** 2))
+            self.prev_action = a
+
+        # 5) Alive bonus pequeño (densifica sin dominar)
+        if not (terminated or truncated):
+            shaped += self.alive_bonus
+
+        return obs, shaped, terminated, truncated, info
 
 class PixelStackWrapper(gym.Wrapper):
     """
@@ -302,15 +374,15 @@ def make_discrete_action_set_legprototype(action_dim: int):
     # 6) estabiliza (hips hacia atrás suave para no “tirarse”)
     # add(np.array([-b, 0, 0, -b, 0, 0], dtype=np.float32)
     
-    # add(np.array([0, 0, 0, +a, 0, 0], dtype=np.float32))
-    # add(np.array([0, 0, 0, -a, 0, 0], dtype=np.float32))
-    # add(np.array([+a, 0, 0, 0, 0, 0], dtype=np.float32))
-    # add(np.array([-a, 0, 0, 0, 0, 0], dtype=np.float32))
+    add(np.array([0, 0, 0, +a, 0, 0], dtype=np.float32))
+    add(np.array([0, 0, 0, -a, 0, 0], dtype=np.float32))
+    add(np.array([+a, 0, 0, 0, 0, 0], dtype=np.float32))
+    add(np.array([-a, 0, 0, 0, 0, 0], dtype=np.float32))
     
-    add(np.array([0, 0, 0, +b, 0, 0], dtype=np.float32))
-    add(np.array([0, 0, 0, -b, 0, 0], dtype=np.float32))
-    add(np.array([+b, 0, 0, 0, 0, 0], dtype=np.float32))
-    add(np.array([-b, 0, 0, 0, 0, 0], dtype=np.float32))
+    # add(np.array([0, 0, 0, +b, 0, 0], dtype=np.float32))
+    # add(np.array([0, 0, 0, -b, 0, 0], dtype=np.float32))
+    # add(np.array([+b, 0, 0, 0, 0, 0], dtype=np.float32))
+    # add(np.array([-b, 0, 0, 0, 0, 0], dtype=np.float32))
     
     return np.stack(actions, axis=0)
     

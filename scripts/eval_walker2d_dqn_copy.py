@@ -7,9 +7,10 @@ from src.dqn_copy import QNetwork
 from src.envs_copy import (
     DiscreteActionWrapper, 
     ForwardAliveSmoothReward, 
-    IgnoreAngleTerminationWrapper,
+    ReduceAngleTerminationWrapper,
     RGBObsWrapper,
     Gray84ObsWrapper,
+    ProgressWithSafetyShaping,
     PixelStackWrapper
 )
 from .utils import (
@@ -42,10 +43,11 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 def make_eval_env():
     env = gym.make(ENV_ID, render_mode="rgb_array")
     # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-    # env = IgnoreAngleTerminationWrapper(env)
+    env = ReduceAngleTerminationWrapper(env)
     env = DiscreteActionWrapper(env)
     # env = RGBObsWrapper(env)  
     # env = Gray84ObsWrapper(env, size=84)
+    env = ProgressWithSafetyShaping(env)
     env = PixelStackWrapper(env, k=4, size=84)
     return env
 

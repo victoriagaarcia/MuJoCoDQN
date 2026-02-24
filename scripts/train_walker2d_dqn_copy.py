@@ -16,7 +16,8 @@ from src.envs_copy import (
     DiscreteActionWrapper,
     Gray84ObsWrapper,
     ForwardAliveSmoothReward, 
-    IgnoreAngleTerminationWrapper,
+    ReduceAngleTerminationWrapper,
+    ProgressWithSafetyShaping,
     PixelStackWrapper,
     RGBObsWrapper
 )
@@ -76,10 +77,11 @@ def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
         # env = ForwardAliveSmoothReward(env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-        env = IgnoreAngleTerminationWrapper(env)
+        env = ReduceAngleTerminationWrapper(env)
         env = DiscreteActionWrapper(env)
         # env = RGBObsWrapper(env)
         # env = Gray84ObsWrapper(env, size=84) 
+        env = ProgressWithSafetyShaping(env)
         env = PixelStackWrapper(env, k=4, size=84) # Apilamos 4 frames preprocesados (grayscale 84x84) para captar movimiento y convertir la observación a un formato adecuado para la red Q
         return env
     return _thunk
@@ -322,10 +324,9 @@ def main():
             #     writer.add_scalar("debug/param_diff_mean", diff_mean, global_step)
             updates_done += 1
 
-            if step % LOG_EVERY < NUM_ENVS:
-                writer.add_scalar("loss", loss.item(), step)
-                writer.add_scalar("epsilon", eps, step)
-                writer.add_scalar("updates_done", updates_done, step)
+            writer.add_scalar("loss", loss.item(), step)
+            writer.add_scalar("epsilon", eps, step)
+            writer.add_scalar("updates_done", updates_done, step)
 
             # if global_step % 10_000 < NUM_ENVS:
             #     s, a, r, ns, d = buffer.sample(64)
@@ -363,8 +364,9 @@ def main():
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array", width=480, height=480)
             # eval_env = ForwardAliveSmoothReward(eval_env, alpha=ALPHA_RW, beta=BETA_RW, gamma=GAMMA_RW, delta=DELTA_RW, lam=LAM_RW)
-            # eval_env = IgnoreAngleTerminationWrapper(eval_env)
+            eval_env = ReduceAngleTerminationWrapper(eval_env)
             eval_env = DiscreteActionWrapper(eval_env)
+            eval_env = ProgressWithSafetyShaping(eval_env)
             eval_env = PixelStackWrapper(eval_env, k=4, size=84) # Mismo preprocesamiento que en el entrenamiento para que la red pueda procesar las observaciones correctamente
             # eval_env = RGBObsWrapper(eval_env)
             # eval_env = Gray84ObsWrapper(eval_env, size=84)
