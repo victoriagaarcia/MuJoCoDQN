@@ -3,8 +3,11 @@ import torch
 import numpy as np
 import os
 
-from src.dqn import QNetwork
-from src.envs import DiscreteActionWrapper, PixelStackWrapper
+from src.dqn_antiguo import QNetwork
+from src.envs_antiguo import (
+    DiscreteActionWrapper, 
+    ProgressWithSafetyShaping,
+    PixelStackWrapper)
 
 # -----------------------------
 # Configuración
@@ -12,11 +15,12 @@ from src.envs import DiscreteActionWrapper, PixelStackWrapper
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb14_20_38_13"
+MODEL_DATE = "Feb24_20_17_56"
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step3000000.pt"  # ← ajusta esto
+LOAD_STEP = 750000
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{LOAD_STEP}.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
-N_EPISODES = 3
+N_EPISODES = 5
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
@@ -25,6 +29,7 @@ def main():
     # 1) Crear entorno base
     env = gym.make(ENV_ID, render_mode="rgb_array")
     env = DiscreteActionWrapper(env)
+    env = ProgressWithSafetyShaping(env)
     env = PixelStackWrapper(env)
 
     # 2) Envolver con RecordVideo
@@ -32,7 +37,7 @@ def main():
         env,
         video_folder=VIDEO_DIR,
         episode_trigger=lambda ep: True,  # graba TODOS los episodios
-        name_prefix="final_video_3000000steps_prueba"
+        name_prefix=f"final_video_{LOAD_STEP}steps"
     )
 
     # 3) Cargar modelo

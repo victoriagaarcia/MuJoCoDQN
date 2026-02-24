@@ -193,15 +193,15 @@ class ProgressWithSafetyShaping(gym.Wrapper):
         # 1) Avance: bonus suave y saturado (no clip duro)
         shaped += self.speed_bonus * float(np.tanh(vx))
         info["debug/speed_bonus"] = self.speed_bonus * float(np.tanh(vx))
-    
+
         # 2) Seguridad: penaliza solo si está "demasiado bajo" (hinge)
         shaped -= self.w_z * max(0.0, self.z_ref - z)
         info["debug/height_pen"] = self.w_z * max(0.0, self.z_ref - z)
-    
+
         # 3) Seguridad: penaliza solo si está "demasiado inclinado" (hinge)
         shaped -= self.w_ang * max(0.0, abs(ang) - self.angle_ref)
         info["debug/angle_pen"] = self.w_ang * max(0.0, abs(ang) - self.angle_ref)
-    
+
         # 4) Suavidad (opcional): si action es vector continuo, penaliza jerk
         #    Si action es discreta (int), w_smooth debería estar a 0.0.
         if self.w_smooth > 0.0:
@@ -240,11 +240,11 @@ class PixelStackWrapper(gym.Wrapper):
     def reset(self, **kwargs):
         _, info = self.env.reset(**kwargs)
         frame = self.env.render() # Obtiene el frame RGB actual
-        
+
         # # mostramos la imagen original para verificar que se renderiza correctamente
         # plt.imshow(frame)
         # plt.savefig("original_frame.png") # Guardamos la imagen original para referencia
-        # 
+
         p = preprocess(frame, self.size) # Normaliza a grayscale 84x84
         # plt.imshow(p) # Mostramos la imagen preprocesada para verificar que el preprocesado funciona correctamente
         # plt.savefig("preprocessed_frame.png") # Guardamos la imagen preprocesada para referencia

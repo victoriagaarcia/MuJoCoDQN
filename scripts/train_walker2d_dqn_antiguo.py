@@ -6,8 +6,12 @@ import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
-from src.dqn import QNetwork, ReplayBuffer
-from src.envs import DiscreteActionWrapper, PixelStackWrapper
+from src.dqn_antiguo import QNetwork, ReplayBuffer
+from src.envs_antiguo import (
+    DiscreteActionWrapper,
+    ProgressWithSafetyShaping,
+    PixelStackWrapper)
+
 from datetime import datetime
 
 # -----------------------------
@@ -24,8 +28,8 @@ LR = 1e-4
 TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
 START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
-# EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
-EPS_START = 0.1
+EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
+# EPS_START = 0.1
 EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
 EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
@@ -70,6 +74,7 @@ def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array")
         env = DiscreteActionWrapper(env)
+        env = ProgressWithSafetyShaping(env)
         env = PixelStackWrapper(env)
         return env
     return _thunk
@@ -159,7 +164,7 @@ def main():
         if done.any(): # Si el episodio ha terminado, registramos la recompensa total del episodio en TensorBoard y reiniciamos el entorno
             done_ids = np.where(done)[0]
             for i in done_ids:
-                writer.add_scalar("episode_reward", float(episode_rewards[i]), step + 3_000_000) # Registramos la recompensa total del episodio en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+                writer.add_scalar("episode_reward", float(episode_rewards[i]), step) # Registramos la recompensa total del episodio en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
                 episode_rewards[i] = 0.0
                 n_episodes += 1
             
@@ -193,8 +198,8 @@ def main():
             torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0) # Clipping de gradientes para evitar explosión de gradientes
             optimizer.step()
 
-            writer.add_scalar("loss", loss.item(), step + 3_000_000) # Registramos la pérdida en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
-            writer.add_scalar("epsilon", eps, step + 3_000_000) # Registramos el valor de epsilon en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+            writer.add_scalar("loss", loss.item(), step) # Registramos la pérdida en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+            writer.add_scalar("epsilon", eps, step) # Registramos el valor de epsilon en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
             
 
         if step % target_update_steps == 0: # Cada cierto número de pasos, actualizamos la red objetivo copiando los pesos de la red online
@@ -202,13 +207,14 @@ def main():
         
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
         if step % 250_000 == 0 and step > 0 or step == TOTAL_STEPS - 1:
-            torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{step + 3_000_000}.pt")
+            torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{step}.pt")
             # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
             q_net.eval()
             test_rewards = []
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array")
             eval_env = DiscreteActionWrapper(eval_env)
+            eval_env = ProgressWithSafetyShaping(eval_env)
             eval_env = PixelStackWrapper(eval_env)
 
             for ep in tqdm(range(10)):
@@ -224,7 +230,7 @@ def main():
                         break
                 test_rewards.append(test_episode_reward)
             avg_test_reward = np.mean(test_rewards)
-            print(f"Checkpoint saved at step {step + 3_000_000}, average test reward over 10 episodes: {avg_test_reward}")
+            print(f"Checkpoint saved at step {step}, average test reward over 10 episodes: {avg_test_reward}")
             writer.add_scalar("avg_test_reward", avg_test_reward, step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
             q_net.train() # Volvemos a poner la red en modo entrenamiento después del test de evaluación
     
