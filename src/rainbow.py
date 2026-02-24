@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from collections import deque
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 # Prioritized Experience Replay: SumTree implementation
@@ -235,31 +236,41 @@ class NoisyLinear(nn.Module):
         self.reset_noise()
 
     def reset_parameters(self):
+        # Inicialización de los parámetros mu y sigma
         mu_range = 1.0 / np.sqrt(self.in_features)
         nn.init.uniform_(self.weight_mu, -mu_range, mu_range)
         nn.init.constant_(self.weight_sigma, self.sigma_init / np.sqrt(self.in_features))
         nn.init.uniform_(self.bias_mu, -mu_range, mu_range)
         nn.init.constant_(self.bias_sigma, self.sigma_init / np.sqrt(self.in_features))
-
-    def _f(self, x):
-        return x.sign() * (x.abs().sqrt())
     
-    def reset_noise(self):
-        epsilon_in = self._scale_noise(self.in_features)
-        epsilon_out = self._scale_noise(self.out_features)
-
-        # -----------------------------
-
     def _scale_noise(self, size):
         x = torch.randn(size)
-        return x.sign().mul(x.abs().sqrt())
+        # Multiplicamos el ruido por la raíz de su valor absoluto para obtener una distribución de ruido 
+        # que favorece valores pequeños pero permite valores grandes ocasionalmente (heavy-tailed)
+        return x.sign().mul(x.abs().sqrt()) 
+
+    def reset_noise(self):
+        # Genera nuevos valores de ruido para pesos y sesgos
+        epsilon_in = self._scale_noise(self.in_features)
+        epsilon_out = self._scale_noise(self.out_features)
+        
+        self.weight_epsilon.copy_(epsilon_out.outer(epsilon_in)) # Genera la matriz de ruido para los pesos (outer product)
+        self.bias_epsilon.copy_(epsilon_out) # Genera el vector de ruido para los sesgos (solo depende de las salidas)
+
+    def disable_noise(self):
+        self.noise_enabled = False
+    
+    def enable_noise(self):
+        self.noise_enabled = True
 
     def forward(self, input):
-        if self.training:
+        # Si el ruido está habilitado, calculamos los pesos y sesgos ruidosos; 
+        # si no, usamos los pesos y sesgos deterministas
+        if self.training and self.noise_enabled: 
             weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
             bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
         else:
             weight = self.weight_mu
             bias = self.bias_mu
 
-        return nn.functional.linear(input, weight, bias)
+        return F.linear(input, weight, bias)
