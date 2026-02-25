@@ -68,17 +68,18 @@ class SumTree:
 
 
 class PrioritizedReplayBuffer:
-    def __init__(self, capacity: int, obs_shape = (4, 84, 84), alpha: float = 0.6):
+    def __init__(self, capacity: int, device="cuda", obs_shape = (4, 84, 84), alpha: float = 0.6):
+        self.device = device
         self.capacity = capacity
         self.alpha = alpha # Exponente para controlar la prioridad (0 = uniforme, 1 = prioridad total)
         self.tree = SumTree(capacity) # Árbol para gestionar prioridades
         self.max_priority = 1.0 # Prioridad máxima inicial (para nuevas experiencias)
 
-        self.states = np.zeros((capacity, *obs_shape), dtype=torch.uint8, device="cpu") # Buffer para estados
-        self.actions = np.zeros(capacity, dtype=np.int64, device="cpu") # Buffer para acciones
-        self.rewards = np.zeros(capacity, dtype=np.float32, device="cpu") # Buffer para recompensas
-        self.next_states = np.zeros((capacity, *obs_shape), dtype=torch.uint8, device="cpu") # Buffer para próximos estados
-        self.dones = np.zeros(capacity, dtype=np.float32, device="cpu") # Buffer para dones (finalización de episodios)
+        self.states = torch.empty((capacity, *obs_shape), dtype=torch.uint8, device="cpu") # Buffer para estados
+        self.actions = torch.empty(capacity, dtype=torch.int64, device="cpu") # Buffer para acciones
+        self.rewards = torch.zeros(capacity, dtype=torch.float32, device="cpu") # Buffer para recompensas
+        self.next_states = torch.empty((capacity, *obs_shape), dtype=torch.uint8, device="cpu") # Buffer para próximos estados
+        self.dones = torch.zeros(capacity, dtype=torch.float32, device="cpu") # Buffer para dones (finalización de episodios)
 
         self.idx = 0 # Índice para escribir la próxima experiencia
         self.size = 0 # Número de experiencias almacenadas
@@ -120,9 +121,33 @@ class PrioritizedReplayBuffer:
             next_states = torch.from_numpy(next_states)
         
         batch_size = states.shape[0]
-        for i in range(batch_size):
-            self.push(states[i], actions[i], rewards[i], next_states[i], dones[i])
+        # for i in range(batch_size):
+        #     self.push(states[i], actions[i], rewards[i], next_states[i], dones[i])
         
+        # En vez de pushear uno a uno, insertamos el batch entero
+        idxs = (torch.arange(batch_size) + self.idx) % self.capacity # Índices donde se escribirán las nuevas experiencias
+        
+        self.states[idxs].copy_(states.to(dtype=torch.uint8, device="cpu")) # Almacena los estados (convertidos a uint8 para ahorrar memoria)
+        self.next_states[idxs].copy_(next_states.to(dtype=torch.uint8, device="cpu")) # Almacena los próximos estados (convertidos a uint8 para ahorrar memoria)
+        self.actions[idxs] = actions
+        self.rewards[idxs] = rewards
+        self.dones[idxs] = dones
+
+        self.idx = (self.idx + batch_size) % self.capacity # Mueve el índice de escritura (circular)
+        self.size = min(self.size + batch_size, self.capacity) # Actualiza el tamaño del buffer
+
+        # Prioridad inicial = máxima prioridad
+        p = self.max_priority ** self.alpha # Calcula la prioridad ajustada por alpha
+        if self.size < self.capacity:
+            for i in range(batch_size):
+                self.tree.add(p, None) # Agrega las nuevas experiencias al árbol con su prioridad
+        else:
+            # Si estamos sobrescribiendo experiencias existentes, actualizamos sus prioridades en el árbol
+            for i in range(batch_size):
+                idx = (self.idx - batch_size + i) % self.capacity
+                self.tree.update(idx, p) # Actualiza la prioridad de las experiencias sobrescritas en el árbol
+
+
     def sample(self, batch_size: int, beta: float = 0.4):
         # Muestra un batch de experiencias con prioridad
         indices = []
@@ -141,14 +166,14 @@ class PrioritizedReplayBuffer:
         # w_i = (1 / N * 1 / P(i))^beta, donde P(i) es la probabilidad de muestreo de la experiencia i
         weights = (self.size * np.array(priorities)) ** (-beta) # Calcula los pesos de importancia para corregir el sesgo de muestreo
         weights /= weights.max() # Normaliza los pesos para evitar valores muy grandes
-        weights = torch.tensor(weights, dtype=torch.float32, device="cpu") # Convierte los pesos a tensor de PyTorch
-        idxs = torch.tensor(indices, dtype=torch.long, device="cpu") # Convierte los índices a tensor de PyTorch
-
-        s = self.states[idxs].to(device="cpu", dtype=torch.float32) / 255.0 # Normaliza los estados (de uint8 a float32 en [0,1])
-        a = self.actions[idxs].to(device="cpu") # Acciones muestreadas
-        r = self.rewards[idxs].to(device="cpu") # Recompensas muestreadas
-        ns = self.next_states[idxs].to(device="cpu", dtype=torch.float32) / 255.0 # Normaliza los próximos estados (de uint8 a float32 en [0,1])
-        d = self.dones[idxs].to(device="cpu") # Dones muestreados
+        weights = torch.tensor(weights, dtype=torch.float32, device=self.device) # Convierte los pesos a tensor de PyTorch
+        idxs = torch.tensor(indices, dtype=torch.long, device=self.device) # Convierte los índices a tensor de PyTorch
+        
+        s = self.states[idxs].to(device=self.device, dtype=torch.float32) / 255.0 # Normaliza los estados (de uint8 a float32 en [0,1])
+        a = self.actions[idxs].to(device=self.device) # Acciones muestreadas
+        r = self.rewards[idxs].to(device=self.device) # Recompensas muestreadas
+        ns = self.next_states[idxs].to(device=self.device, dtype=torch.float32) / 255.0 # Normaliza los próximos estados (de uint8 a float32 en [0,1])
+        d = self.dones[idxs].to(device=self.device) # Dones muestreados
 
         return s, a, r, ns, d, weights, idxs # Devuelve el batch de experiencias muestreadas junto con sus pesos de importancia y sus índices en el buffer
     
@@ -178,7 +203,7 @@ class NStepAccumulator:
     def reset_env(self, env_id: int):
         self.buffers[env_id].clear() # Limpia la deque del entorno específico al resetearlo
     
-    def _compute_n_step(self, buffer: deque):
+    def _compute_n_step(self, buffer: deque): 
         R_n = 0.0
         for i, (_, _, r, _, d) in enumerate(buffer):
             R_n += (self.gamma ** i) * r # Calcula la recompensa acumulada con descuento
@@ -189,7 +214,7 @@ class NStepAccumulator:
     
         # Bootstrapping: devolvemos next step del último elemento considerado
         # Si el episodio terminó antes de n pasos, devolvemos el último estado y done=True
-        last_idx = 0
+        last_idx = len(buffer) - 1 # Si no hay 'done', nos quedamos con el último 
         for i, (_, _, _, s, d) in enumerate(buffer):
             if d:
                 last_idx = i
@@ -216,10 +241,11 @@ class NStepAccumulator:
 
 
 class NoisyLinear(nn.Module):
-    def __init__(self, in_features, out_features, sigma_init=0.017):
-        super(NoisyLinear, self).__init__()
+    def __init__(self, in_features, out_features, sigma_init=0.5):
+        super().__init__()
         self.in_features = in_features
         self.out_features = out_features
+        self.sigma_init = sigma_init # Copilot pone 0.017 por defecto
 
         self.weight_mu = nn.Parameter(torch.empty(out_features, in_features))
         self.weight_sigma = nn.Parameter(torch.empty(out_features, in_features))
@@ -241,10 +267,11 @@ class NoisyLinear(nn.Module):
         nn.init.uniform_(self.weight_mu, -mu_range, mu_range)
         nn.init.constant_(self.weight_sigma, self.sigma_init / np.sqrt(self.in_features))
         nn.init.uniform_(self.bias_mu, -mu_range, mu_range)
-        nn.init.constant_(self.bias_sigma, self.sigma_init / np.sqrt(self.in_features))
+        nn.init.constant_(self.bias_sigma, self.sigma_init / np.sqrt(self.out_features))
     
     def _scale_noise(self, size):
-        x = torch.randn(size)
+        device = self.weight_mu.device
+        x = torch.randn(size, device=device) # Genera ruido gaussiano
         # Multiplicamos el ruido por la raíz de su valor absoluto para obtener una distribución de ruido 
         # que favorece valores pequeños pero permite valores grandes ocasionalmente (heavy-tailed)
         return x.sign().mul(x.abs().sqrt()) 
@@ -274,3 +301,198 @@ class NoisyLinear(nn.Module):
             bias = self.bias_mu
 
         return F.linear(input, weight, bias)
+
+
+class NoisyandDuelingDQN(nn.Module):
+    def __init__(self, num_actions: int, sigma_init: float = 0.017):
+        super().__init__()
+        self.num_actions = num_actions
+
+        self.encoder = nn.Sequential(
+            nn.Conv2d(4, 32, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Flatten()
+        )
+
+        with torch.no_grad():
+            dummy = torch.zeros(1, 4, 84, 84) 
+            n_flat = self.encoder(dummy).shape[1]
+
+        # Dividimos la red en dos "streams": uno para el valor del estado y otro para las ventajas de cada acción
+        self.value_stream = nn.Sequential(
+            NoisyLinear(n_flat, 512, sigma_init),
+            nn.ReLU(),
+            NoisyLinear(512, 1, sigma_init) # Salida: valor del estado V(s)
+        )
+
+        self.advantage_stream = nn.Sequential(
+            NoisyLinear(n_flat, 512, sigma_init),
+            nn.ReLU(),
+            NoisyLinear(512, num_actions, sigma_init) # Salida: ventajas de cada acción A(s,a)
+        )
+    
+    def reset_noise(self):
+        # Resetea el ruido en todas las capas NoisyLinear
+        for module in self.modules():
+            if isinstance(module, NoisyLinear):
+                module.reset_noise()
+    
+    def enable_noise(self): 
+        # Activa el ruido en todas las capas NoisyLinear
+        for module in self.modules():
+            if isinstance(module, NoisyLinear):
+                module.enable_noise()
+    
+    def disable_noise(self):
+        # Desactiva el ruido en todas las capas NoisyLinear 
+        for module in self.modules():
+            if isinstance(module, NoisyLinear):
+                module.disable_noise()
+    
+    def forward(self, x):
+        conv_out = self.encoder(x).view(x.size()[0], -1) # Extrae características con la parte convolucional
+        value = self.value_stream(conv_out) # Calcula el valor del estado V(s)
+        advantages = self.advantage_stream(conv_out) # Calcula las ventajas de cada acción A(s,a)
+
+        # Combina el valor y las ventajas para obtener Q(s,a) usando la fórmula: Q(s,a) = V(s) + (A(s,a) - mean(A(s,·)))
+        q_values = value + (advantages - advantages.mean(dim=1, keepdim=True)) 
+        return q_values # Devuelve los valores Q para cada acción
+
+
+class RainbowDQN:
+    def __init__(self, num_actions: int, n_atoms : int = 51, v_min: float = -10.0, v_max: float = 10.0, sigma_init: float = 0.017):
+        super().__init__()
+        self.num_actions = num_actions
+        self.n_atoms = n_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+
+        # Soporte de la distribución de valores
+        support = torch.linspace(v_min, v_max, n_atoms) # dim: (n_atoms,) con los valores z_i del soporte
+        self.register_buffer('support', support) # Registramos el soporte como buffer para que se
+
+        self.encoder = nn.Sequential(
+            nn.Conv2d(4, 32, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Flatten()
+        )
+
+        with torch.no_grad():
+            dummy = torch.zeros(1, 4, 84, 84) 
+            n_flat = self.encoder(dummy).shape[1]
+        
+        # Value stream para la distribución de valores del estado
+        self.value_stream = nn.Sequential(
+            NoisyLinear(n_flat, 512, sigma_init),
+            nn.ReLU(),
+            NoisyLinear(512, n_atoms, sigma_init) # Salida: distribución de valores del estado (n_atoms)
+        )
+
+        # Advantage stream para la distribución de ventajas de cada acción
+        self.advantage_stream = nn.Sequential(
+            NoisyLinear(n_flat, 512, sigma_init),
+            nn.ReLU(),
+            NoisyLinear(512, num_actions * n_atoms, sigma_init) # Salida: distribución de ventajas de cada acción (num_actions * n_atoms)
+        )
+
+    def reset_noise(self):
+        for module in self.modules():
+            if isinstance(module, NoisyLinear):
+                module.reset_noise()
+    
+    def enable_noise(self):
+        for module in self.modules():
+            if isinstance(module, NoisyLinear):
+                module.enable_noise()
+
+    def disable_noise(self):
+        for module in self.modules():
+            if isinstance(module, NoisyLinear):
+                module.disable_noise()
+    
+    def forward(self, x, return_probs : bool = True):
+        # Extrae características con la parte convolucional
+        conv_out = self.encoder(x).view(x.size()[0], -1) # 
+        # Calcula la distribución de valores del estado 
+        value = self.value_stream(conv_out) # (batch_size, n_atoms)
+        # Calcula la distribución de ventajas de cada acción 
+        advantages = self.advantage_stream(conv_out) # (batch_size, num_actions * n_atoms)
+
+        # Reshape para broadcasting (batch_size, 1, n_atoms)
+        value = value.unsqueeze(1)
+        # Reshape para separar acciones (batch_size, num_actions, n_atoms)
+        advantages = advantages.view(-1, self.num_actions, self.n_atoms) 
+
+        logits = value + (advantages - advantages.mean(dim=1, keepdim=True)) # Combina valor y ventajas para obtener la distribución de Q(s,a)
+        if return_probs:
+            probs = F.softmax(logits, dim=-1) # Convierte los logits en probabilidades usando softmax
+            return probs # Devuelve las distribuciones de probabilidad para cada acción (batch_size, num_actions, n_atoms)
+        else:
+            return logits # Devuelve los logits sin normalizar (útil para el cálculo de la pérdida con CrossEntropyLoss)
+    
+    @torch.no_grad()
+    def get_q_values(self, x):
+        # Calcula los valores Q esperados para cada acción a partir de las distribuciones de probabilidad
+        probs = self.forward(x, return_probs=True) # Obtiene las distribuciones de probabilidad para cada acción
+        q_values = torch.sum(probs * self.support.view(1, 1, -1), dim=-1) # Calcula el valor esperado Q(s,a) = sum(p_i * z_i)
+        return q_values # Devuelve los valores Q para cada acción
+
+
+@torch.no_grad()
+def projection_distribution(
+    next_dist: torch.Tensor, # (batch_size, num_actions, n_atoms) distribución de probabilidad de los próximos estados para cada acción
+    rewards: torch.Tensor, # (batch_size,) recompensas obtenidas al tomar la acción
+    dones: torch.Tensor, # (batch_size,) indicadores de si el episodio terminó después de tomar la acción
+    gamma: float,
+    n_step: int,
+    support: torch.Tensor,
+    v_min: float,
+    v_max: float
+):
+    batch_size, n_actions, n_atoms = next_dist.shape
+    device = next_dist.device
+
+    # Calcula el soporte proyectado Tz para cada transición del batch
+    # Tz = r + (gamma^n) * (1 - done) * z_i
+    Tz = rewards.unsqueeze(1) + (gamma ** n_step) * (1 - dones.unsqueeze(1)) * support.view(1, n_atoms) # ()
+    Tz = Tz.clamp(v_min, v_max) # Limita el soporte proyectado al rango [v_min, v_max]
+
+    b = (Tz - v_min) / (v_max - v_min) * (n_atoms - 1) # (batch_size, n_atoms) Índices flotantes del soporte proyectado en el espacio de átomos
+    l = b.floor().long() # (batch_size, n_atoms) Índices inferiores
+    u = b.ceil().long() # (batch_size, n_atoms) Índices superiores
+
+    # Distribución proyectada inicializada a cero
+    projected_dist = torch.zeros((batch_size, n_atoms), device=device, dtype=torch.float32)
+
+    # Distribución entre l y u (vectorizado con scatter_add)
+    offset = (torch.arange(batch_size, device=device) * n_atoms).unsqueeze(1) # (batch_size, 1) Offset para indexar en la distribución proyectada
+
+    # Índices planos para scatter_add
+    l_idx = (l + offset).view(-1) # Índices planos para l
+    u_idx = (u + offset).view(-1) # Índices planos para u
+    next_dist_flat = next_dist.view(-1) # Aplanamos la distribución de los próximos estados para indexar fácilmente
+
+    # Agregamos la probabilidad de cada átomo a los índices l y u correspondientes
+    proj_dist_flat = projected_dist.view(-1) # Aplanamos la distribución proyectada para scatter_add
+    proj_dist_flat.scatter_add_(0, l_idx, (next_dist_flat * (u.float() - b)).view(-1)) 
+    proj_dist_flat.scatter_add_(0, u_idx, (next_dist_flat * (b - l.float())).view(-1))
+
+    # Corregimos el caso l==u (cuando b es un entero, toda la probabilidad va a un solo átomo)
+    eq_mask = (u == l).view(-1) # Máscara para identificar dónde l y u son iguales
+    if eq_mask.any():
+        idx = l_idx[eq_mask] # Índices donde l == u
+        # En este caso, toda la probabilidad va al mismo átomo, así que sumamos ambas contribuciones
+        proj_dist_flat.scatter_add_(0, idx, next_dist_flat[eq_mask])
+    
+    projected_dist = projected_dist.view(batch_size, n_atoms) # Reshape de vuelta a (batch_size, n_atoms)
+    # Normalizamos por si acaso
+    projected_dist = projected_dist / projected_dist.sum(dim=1, keepdim=True) # Normaliza la distribución proyectada para que sume 1
+    return projected_dist # Devuelve la distribución proyectada para cada transición del batch
