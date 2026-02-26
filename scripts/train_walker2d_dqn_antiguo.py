@@ -20,7 +20,7 @@ from datetime import datetime
 
 
 ENV_ID = "Walker2d-v5"
-TOTAL_STEPS = 5_000_000 # Número total de pasos de interacción con el entorno (no episodios)
+TOTAL_STEPS = 10_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 200_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
 BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
@@ -30,8 +30,9 @@ START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a en
 
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
 # EPS_START = 0.1
-EPS_END = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_DECAY = 2_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
+EPS_END1 = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
+EPS_END2 = 0.05
+EPS_DECAY = 1_500_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
 START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
@@ -40,15 +41,20 @@ NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
-# MODEL_DIR = f"runs/Feb14_20_38_13" # Directorio para guardar el modelo entrenado y los logs de TensorBoard (ajusta esto)
+# MODEL_DIR = f"runs/Feb24_20_17_56" # Directorio para guardar el modelo entrenado y los logs de TensorBoard (ajusta esto)
 
-# MODEL_DATE = "Feb14_20_38_13"
+# MODEL_DATE = "Feb24_20_17_56"
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step3000000.pt"  # ← ajusta esto
+# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step5.pt"  # ← ajusta esto
 
 def epsilon(step):
    # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
-   return max(EPS_END, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY)) # Decay lineal con fase inicial de epsilon constante
+    if step < EPS_DECAY:
+       return max(EPS_END1, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY)) # Decay lineal con fase inicial de epsilon constante
+    elif step < 2 * EPS_DECAY:
+        return EPS_END1
+    else:
+        return EPS_END2
 
 def save_experiment_to_excel(row_dict, filename="runs/experiments.xlsx"):
     # Convertimos el diccionario en un DataFrame de una sola fila
