@@ -10,7 +10,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
 
-from src.envs_copy import (
+from src.envs_antiguo import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper,
@@ -227,7 +227,7 @@ def main():
             with torch.no_grad():
                 # Double DQN para C51:
                 # a* = argmax_a E[Z] usando online
-                q_net.reset_noise()
+                # q_net.reset_noise() # a ver si así se arregla el inplace
                 next_q_online = q_net.get_q_values(next_states_b)  # (B,A)
                 a_star = next_q_online.argmax(dim=1)              # (B,)
 
@@ -254,6 +254,7 @@ def main():
             loss = (weights * per_sample_loss).mean()
 
             optimizer.zero_grad()
+            torch.autograd.set_detect_anomaly(True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
             optimizer.step()

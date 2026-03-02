@@ -17,10 +17,10 @@ from src.envs_copy import ReduceAngleTerminationWrapper
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb24_20_17_56"
-MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-LOAD_STEP = 7_750_000
-# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{LOAD_STEP}.pt"  # ← ajusta esto
+MODEL_DATE = "Feb26_10_30_09"
+# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
+LOAD_STEP = 14_500_000
+MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{LOAD_STEP}.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
 N_EPISODES = 5
 

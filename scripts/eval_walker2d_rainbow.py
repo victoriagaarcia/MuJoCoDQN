@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import os
 
-from src.envs_copy import (
+from src.envs_antiguo import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper
@@ -19,10 +19,11 @@ from .utils import to_uint8_stack
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb24_12_49_59"   # ajusta
-CHECKPOINT_STEP = "1500000"     # ajusta
+MODEL_DATE = "Feb28_18_41_08"   # ajusta
+CHECKPOINT_STEP = 5_000_000     # ajusta
 
-MODEL_PATH = f"runs/{MODEL_DATE}/rainbow_walker2d_step{CHECKPOINT_STEP}.pt"  # ajusta nombre si guardas distinto
+# MODEL_PATH = f"runs/{MODEL_DATE}/rainbow_walker2d_step{CHECKPOINT_STEP}.pt"  # ajusta nombre si guardas distinto
+MODEL_PATH = f"runs/{MODEL_DATE}/rainbow_walker2d.pt"  # carpeta separada para videos de evaluación
 VIDEO_DIR = f"runs/{MODEL_DATE}/"
 N_EPISODES = 5
 

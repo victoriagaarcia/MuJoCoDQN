@@ -169,6 +169,12 @@ class PrioritizedReplayBuffer:
         weights = torch.tensor(weights, dtype=torch.float32, device=self.device) # Convierte los pesos a tensor de PyTorch
         idxs = torch.tensor(indices, dtype=torch.long, device=self.device) # Convierte los índices a tensor de PyTorch
         
+        # idxs debe estar en CPU para indexar tensores CPU
+        if torch.is_tensor(idxs):
+            idxs = idxs.to("cpu")
+        else:
+            idxs = torch.as_tensor(idxs, dtype=torch.long, device="cpu")
+        
         s = self.states[idxs].to(device=self.device, dtype=torch.float32) / 255.0 # Normaliza los estados (de uint8 a float32 en [0,1])
         a = self.actions[idxs].to(device=self.device) # Acciones muestreadas
         r = self.rewards[idxs].to(device=self.device) # Recompensas muestreadas
@@ -363,7 +369,7 @@ class NoisyandDuelingDQN(nn.Module):
         return q_values # Devuelve los valores Q para cada acción
 
 
-class RainbowDQN:
+class RainbowDQN(nn.Module):
     def __init__(self, num_actions: int, n_atoms : int = 51, v_min: float = -10.0, v_max: float = 10.0, sigma_init: float = 0.017):
         super().__init__()
         self.num_actions = num_actions
@@ -457,7 +463,18 @@ def projection_distribution(
     v_min: float,
     v_max: float
 ):
-    batch_size, n_actions, n_atoms = next_dist.shape
+    # batch_size, n_actions, n_atoms = next_dist.shape
+    # Device = next_dist.device
+    
+    # Acepta (B,1,N) y lo convierte a (B,N)
+    if next_dist.dim() == 3:
+        if next_dist.size(1) != 1:
+            raise ValueError(f"projection_distribution: esperaba A=1, got {next_dist.shape}")
+        next_dist = next_dist.squeeze(1)  # (B,N)
+    elif next_dist.dim() != 2:
+        raise ValueError(f"projection_distribution: esperaba (B,N) o (B,1,N), got {next_dist.shape}")
+
+    batch_size, n_atoms = next_dist.shape
     device = next_dist.device
 
     # Calcula el soporte proyectado Tz para cada transición del batch
@@ -482,8 +499,10 @@ def projection_distribution(
 
     # Agregamos la probabilidad de cada átomo a los índices l y u correspondientes
     proj_dist_flat = projected_dist.view(-1) # Aplanamos la distribución proyectada para scatter_add
-    proj_dist_flat.scatter_add_(0, l_idx, (next_dist_flat * (u.float() - b)).view(-1)) 
-    proj_dist_flat.scatter_add_(0, u_idx, (next_dist_flat * (b - l.float())).view(-1))
+    # proj_dist_flat.scatter_add_(0, l_idx, (next_dist_flat * (u.float() - b)).view(-1)) 
+    # proj_dist_flat.scatter_add_(0, u_idx, (next_dist_flat * (b - l.float())).view(-1))
+    proj_dist_flat.scatter_add_(0, l_idx, (next_dist * (u.float() - b)).view(-1))
+    proj_dist_flat.scatter_add_(0, u_idx, (next_dist * (b - l.float())).view(-1))
 
     # Corregimos el caso l==u (cuando b es un entero, toda la probabilidad va a un solo átomo)
     eq_mask = (u == l).view(-1) # Máscara para identificar dónde l y u son iguales
