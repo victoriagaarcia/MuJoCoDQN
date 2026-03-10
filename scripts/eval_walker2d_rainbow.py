@@ -19,7 +19,7 @@ from .utils import to_uint8_stack
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Feb28_18_41_08"   # ajusta
+MODEL_DATE = "Mar09_11_49_29"   # ajusta
 CHECKPOINT_STEP = 5_000_000     # ajusta
 
 # MODEL_PATH = f"runs/{MODEL_DATE}/rainbow_walker2d_step{CHECKPOINT_STEP}.pt"  # ajusta nombre si guardas distinto
@@ -29,8 +29,9 @@ N_EPISODES = 5
 
 # C51 params: deben coincidir con training
 N_ATOMS = 51
-V_MIN = -50.0
-V_MAX = 200.0
+V_MIN = -80.0
+# V_MAX = 200.0
+V_MAX = 500.0
 
 # Noisy init (debe coincidir si tu ctor lo pide)
 SIGMA_INIT = 0.017

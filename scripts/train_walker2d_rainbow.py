@@ -51,8 +51,9 @@ PER_BETA_END = 1.0
 
 # C51
 N_ATOMS = 51
-V_MIN = -50.0
-V_MAX = 200.0
+V_MIN = -80.0
+# V_MAX = 200.0
+V_MAX = 500.0
 
 # Noisy
 SIGMA_INIT = 0.017
@@ -61,7 +62,7 @@ SEED = 42
 NUM_ENVS = 8
 
 LOG_EVERY = 5_000
-CHECKPOINT_EVERY = 250_000
+CHECKPOINT_EVERY = 100_000
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S")

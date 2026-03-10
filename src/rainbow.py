@@ -132,20 +132,28 @@ class PrioritizedReplayBuffer:
         self.actions[idxs] = actions
         self.rewards[idxs] = rewards
         self.dones[idxs] = dones
+        
+        # fix chati:
+        # prioridad inicial (m�xima)
+        p = self.max_priority ** self.alpha
+
+        # actualizar prioridades en el �rbol exactamente en esos �ndices
+        for idx in idxs:
+            self.tree.update(int(idx), p)
 
         self.idx = (self.idx + batch_size) % self.capacity # Mueve el índice de escritura (circular)
         self.size = min(self.size + batch_size, self.capacity) # Actualiza el tamaño del buffer
 
         # Prioridad inicial = máxima prioridad
-        p = self.max_priority ** self.alpha # Calcula la prioridad ajustada por alpha
-        if self.size < self.capacity:
-            for i in range(batch_size):
-                self.tree.add(p, None) # Agrega las nuevas experiencias al árbol con su prioridad
-        else:
-            # Si estamos sobrescribiendo experiencias existentes, actualizamos sus prioridades en el árbol
-            for i in range(batch_size):
-                idx = (self.idx - batch_size + i) % self.capacity
-                self.tree.update(idx, p) # Actualiza la prioridad de las experiencias sobrescritas en el árbol
+        # p = self.max_priority ** self.alpha # Calcula la prioridad ajustada por alpha
+        # if self.size < self.capacity:
+        #     for i in range(batch_size):
+        #         self.tree.add(p, None) # Agrega las nuevas experiencias al árbol con su prioridad
+        # else:
+        #     # Si estamos sobrescribiendo experiencias existentes, actualizamos sus prioridades en el árbol
+        #     for i in range(batch_size):
+        #         idx = (self.idx - batch_size + i) % self.capacity
+        #         self.tree.update(idx, p) # Actualiza la prioridad de las experiencias sobrescritas en el árbol
 
 
     def sample(self, batch_size: int, beta: float = 0.4):
