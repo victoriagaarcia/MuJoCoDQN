@@ -173,7 +173,7 @@ def make_discrete_action_set_legprototype(action_dim: int):
         actions.append(np.clip(vector, -1.0, 1.0)) # Aseguramos que las acciones estén en el rango [-1, 1]   
     
     # Acción de idle (ninguna acción)
-    add(Z)
+    add(Z) 
     
     # # 0) empuje global suave hacia adelante (arranque)
     # add(np.full(action_dim, +b, dtype=np.float32))
@@ -184,7 +184,7 @@ def make_discrete_action_set_legprototype(action_dim: int):
     
     # dobla tobillo pierna 2 (empuje hacia adelante)
     add(np.array([0, 0, +a, 0, 0, 0], dtype=np.float32))
-    add(np.array([0, 0, a, 0, 0, 0], dtype=np.float32))
+    add(np.array([0, 0, -a, 0, 0, 0], dtype=np.float32))
     
     # 2) empuja pierna 1 (extiende rodilla + empuja tobillo + hip suave)
     add(np.array([0, -a, +a, 0, 0, 0], dtype=np.float32))
@@ -310,5 +310,86 @@ class ProgressWithSafetyShaping(gym.Wrapper):
             info["debug/alive_bonus"] = self.alive_bonus
         else: 
             info["debug/alive_bonus"] = 0.0
+
+        return obs, shaped, terminated, truncated, info
+
+
+class ProgressWithSafetyShapingNew(gym.Wrapper):
+    """
+    Reward shaping suave para Walker2d-v5.
+    """
+    def __init__(
+        self,
+        env,
+        z_ref: float = 1.10,
+        angle_ref: float = 0.7,
+        w_z: float = 0.7,
+        w_ang: float = 0.3,
+        w_smooth: float = 0.0,
+        alive_weight: float = 1.25,
+        speed_weight: float = 0.75,
+    ):
+        super().__init__(env)
+        self.z_ref = float(z_ref)
+        self.angle_ref = float(angle_ref)
+        self.w_z = float(w_z)
+        self.w_ang = float(w_ang)
+        self.w_smooth = float(w_smooth)
+        self.alive_weight = float(alive_weight)
+        self.speed_weight = float(speed_weight)
+        self.prev_action = None
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self.prev_action = None
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        forward_reward = float(info.get("reward_forward", 0.0)) * self.speed_weight
+
+        survive_reward = float(info.get("reward_survive", 0.0)) * self.alive_weight
+        ctrl_reward = float(info.get("reward_ctrl", 0.0))
+
+        shaped = survive_reward + forward_reward + ctrl_reward
+        
+        data = self.env.unwrapped.data
+        z = float(data.qpos[1])
+        ang = float(data.qpos[2])
+        vx = float(data.qvel[0])
+
+        # shaped += self.speed_weight * float(np.tanh(vx))
+        # info["debug/speed_weight"] = self.speed_weight * float(np.tanh(vx))
+
+        z_pen = self.w_z * max(0.0, self.z_ref - z)
+        ang_pen = self.w_ang * max(0.0, abs(ang) - self.angle_ref)
+
+        shaped -= z_pen
+        shaped -= ang_pen
+        
+        info["debug/reward_forward"] = forward_reward
+        info["debug/reward_survive"] = survive_reward
+        info["debug/reward_ctrl"] = ctrl_reward
+        info["debug/height_pen"] = z_pen
+        info["debug/angle_pen"] = ang_pen
+
+        if self.w_smooth > 0.0:
+            a = np.array(action, dtype=np.float32)
+            if self.prev_action is not None:
+                smooth_pen = self.w_smooth * float(np.sum((a - self.prev_action) ** 2))
+                shaped -= smooth_pen
+                info["debug/smooth_pen"] = smooth_pen
+            else:
+                info["debug/smooth_pen"] = 0.0
+            self.prev_action = a
+        else:
+            info["debug/smooth_pen"] = 0.0
+
+        # if not (terminated or truncated):
+        #     shaped += self.alive_bonus
+        #     info["debug/alive_bonus"] = self.alive_bonus
+        # else:
+        #     info["debug/alive_bonus"] = 0.0
 
         return obs, shaped, terminated, truncated, info
