@@ -22,10 +22,10 @@ from datetime import datetime
 ENV_ID = "Walker2d-v5"
 TOTAL_STEPS = 10_000_000 # Número total de pasos de interacción con el entorno (no episodios)
 BUFFER_SIZE = 200_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
-BATCH_SIZE = 128 # Tamaño del batch para el entrenamiento de la red Q, (estaba a 64) cambiado a 128 para la prueba de la nueva recompensa
+BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
 GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
-LR = 3e-5 # Estaba a 1e-4, cambiado a 3e-5 para la prueba de la nueva recompensa
-TARGET_UPDATE = 20_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción) (Estaba a 40k y cambio a 20k para la prueba de la nueva recompensa)
+LR = 1e-4 # Estaba a 1e-4
+TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
 START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
 
 EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
@@ -37,8 +37,7 @@ START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon
 SEED = 42 # Semilla para reproducibilidad
 LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
 EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
-# NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento 
-NUM_ENVS = 1 # puesto para la prueba de la nueva recompensa
+NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
@@ -81,8 +80,7 @@ def make_env(rank:int):
     def _thunk():
         env = gym.make(ENV_ID, render_mode="rgb_array")
         env = DiscreteActionWrapper(env)
-        # env = ProgressWithSafetyShaping(env)
-        env = ProgressWithSafetyShapingNew(env)
+        env = ProgressWithSafetyShaping(env)
         env = PixelStackWrapper(env)
         return env
     return _thunk
