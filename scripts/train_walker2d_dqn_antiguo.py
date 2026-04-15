@@ -10,47 +10,40 @@ from src.dqn_antiguo import QNetwork, ReplayBuffer
 from src.envs_antiguo import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
-    ProgressWithSafetyShapingNew,
     PixelStackWrapper)
 
 from datetime import datetime
 
-# -----------------------------
+
 # Hiperparámetros
-# -----------------------------
 
 ENV_ID = "Walker2d-v5"
-TOTAL_STEPS = 10_000_000 # Número total de pasos de interacción con el entorno (no episodios)
-BUFFER_SIZE = 200_000 # Capacidad máxima del replay buffer (número de transiciones almacenadas)
-BATCH_SIZE = 64 # Tamaño del batch para el entrenamiento de la red Q
-GAMMA = 0.99 # Ponderación del valor futuro en la actualización de Q (factor de descuento)
-LR = 1e-4 # Estaba a 1e-4
-TARGET_UPDATE = 40_000 # Frecuencia de actualización de la red objetivo (en pasos de interacción)
-START_TRAINING = 50_000 # Número de pasos de interacción antes de empezar a entrenar (para llenar el buffer con experiencias iniciales)
+TOTAL_STEPS = 10_000_000
+BUFFER_SIZE = 200_000
+BATCH_SIZE = 64
+GAMMA = 0.99
+LR = 1e-4 
+TARGET_UPDATE = 40_000
+START_TRAINING = 50_000
 
-EPS_START = 1.0 # Valor inicial de epsilon para la política epsilon-greedy (probabilidad de acción aleatoria)
+EPS_START = 1.0
 # EPS_START = 0.1
-EPS_END1 = 0.1 # Valor final de epsilon después de la fase de decaimiento (probabilidad mínima de acción aleatoria)
-EPS_END2 = 0.08
-EPS_DECAY = 2_000_000 # Número de pasos durante los cuales epsilon decae linealmente desde EPS_START hasta EPS_END
-START_DECAY = 0 # Número de pasos antes de empezar a decaer epsilon 
-SEED = 42 # Semilla para reproducibilidad
-LAST_EPISODES = 100 # Número de episodios finales para calcular la recompensa media al finalizar el entrenamiento
-EXPERIMENT_XLSX = "runs/experiments.xlsx" # Archivo Excel para guardar los resultados de los experimentos
-NUM_ENVS = 4 # Número de entornos paralelos para entrenamiento 
+EPS_END1 = 0.1 
+EPS_END2 = 0.05
+EPS_DECAY = 1_500_000
+START_DECAY = 0 
+SEED = 42
+LAST_EPISODES = 100
+EXPERIMENT_XLSX = "runs/experiments.xlsx"
+NUM_ENVS = 4
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") # Directorio para guardar el modelo entrenado y los logs de TensorBoard
-# MODEL_DIR = f"runs/Feb26_10_30_09" # Directorio para guardar el modelo entrenado y los logs de TensorBoard (ajusta esto)
-
-# MODEL_DATE = "Feb26_10_30_09"
-# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-# MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step7500000.pt"  # ← ajusta esto
+MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") 
 
 def epsilon(step):
    # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
     if step < EPS_DECAY:
-       return max(EPS_END1, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY)) # Decay lineal con fase inicial de epsilon constante
+       return max(EPS_END1, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY))
     elif step < 2 * EPS_DECAY:
         return EPS_END1
     else:
@@ -89,29 +82,22 @@ def main():
     np.random.seed(SEED)
     torch.manual_seed(SEED)
 
-    writer = SummaryWriter(MODEL_DIR) # Creamos un escritor de TensorBoard para registrar métricas durante el entrenamiento
+    writer = SummaryWriter(MODEL_DIR) 
 
-    # # Creamos el entorno con renderizado en modo "rgb_array" para obtener frames como imágenes
-    # env = gym.make(ENV_ID, render_mode="rgb_array")
-    # # Envolvemos el entorno para discretizar las acciones y apilar frames de píxeles
-    # env = DiscreteActionWrapper(env)
-    # # Envolvemos el entorno para convertir las observaciones en stacks de frames de píxeles preprocesados (grises y redimensionados) CONTINUOS
-    # env = PixelStackWrapper(env)
-
-    env = AsyncVectorEnv([make_env(i) for i in range(NUM_ENVS)]) # Creamos un entorno vectorizado con múltiples instancias en paralelo para acelerar el entrenamiento
+    env = AsyncVectorEnv([make_env(i) for i in range(NUM_ENVS)]) 
     n_actions = env.single_action_space.n
 
-    # Creamos la red Q (online: para seleccionar acciones) y la red objetivo (target: para calcular los objetivos de entrenamiento)
+    # Creamos la red Q y la red objetivo
     q_net = QNetwork(n_actions).to(DEVICE)
-    # q_net.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
-    
+
     target_net = QNetwork(n_actions).to(DEVICE)
-    target_net.load_state_dict(q_net.state_dict()) # Inicializamos la red objetivo con los mismos pesos que la red online
+    # Inicializamos la red objetivo con los mismos pesos que la red online
+    target_net.load_state_dict(q_net.state_dict()) 
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
     buffer = ReplayBuffer(BUFFER_SIZE)
 
-    seeds = [SEED + i for i in range(NUM_ENVS)] # Semillas diferentes para cada entorno paralelo para mayor diversidad de experiencias
+    seeds = [SEED + i for i in range(NUM_ENVS)] 
     state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
     # episode_reward = 0.0
     # n_episodes = 0
