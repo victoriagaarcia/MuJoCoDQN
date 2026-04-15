@@ -19,10 +19,10 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 MODEL_DATE = "Feb26_10_30_09"
 # MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d.pt"  # ← ajusta esto
-LOAD_STEP = 14_500_000
+LOAD_STEP = 14_250_000
 MODEL_PATH = f"runs/{MODEL_DATE}/dqn_walker2d_step{LOAD_STEP}.pt"  # ← ajusta esto
 VIDEO_DIR = f"runs/{MODEL_DATE}/"  # ← ajusta esto
-N_EPISODES = 5
+N_EPISODES = 20
 
 os.makedirs(VIDEO_DIR, exist_ok=True)
 

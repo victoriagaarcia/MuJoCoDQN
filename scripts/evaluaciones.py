@@ -12,7 +12,9 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from src.dqn_antiguo import QNetwork
+# from src.dqn_antiguo import QNetwork
+from src.rainbow import RainbowDQN as QNetwork
+
 from src.envs_antiguo import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
@@ -89,7 +91,9 @@ def evaluate_checkpoint(
         while not done:
             with torch.no_grad():
                 s = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
-                action = q_net(s).argmax(dim=1).item()
+                # action = q_net(s).argmax(dim=1).item()
+                q_values = q_net.get_q_values(s) # Esto calcula sum(probs * support)
+                action = q_values.argmax(dim=1).item()
 
             state, reward, terminated, truncated, info = env.step(action)
 
@@ -159,7 +163,8 @@ def main():
     assert run_dir.exists(), f"No existe el directorio: {run_dir}"
 
     ckpts = sorted(
-        run_dir.glob("dqn_walker2d_step*.pt"),
+        # run_dir.glob("dqn_walker2d_step*.pt"),
+        run_dir.glob("rainbow_walker2d_step*.pt"),
         key=extract_step
     )
 
