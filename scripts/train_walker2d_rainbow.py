@@ -24,14 +24,12 @@ from src.rainbow import (
 )
 
 from .utils import (
-    should_update_target,
     save_experiment_to_excel,
     to_uint8_stack,
 )
 
-# -----------------------------
+
 # Hiperparámetros
-# -----------------------------
 ENV_ID = "Walker2d-v5"
 
 TOTAL_STEPS = 5_000_000
@@ -52,7 +50,6 @@ PER_BETA_END = 1.0
 # C51
 N_ATOMS = 51
 V_MIN = -80.0
-# V_MAX = 200.0
 V_MAX = 500.0
 
 # Noisy
@@ -80,7 +77,6 @@ def make_env(rank: int):
 
 
 def beta_schedule(step: int) -> float:
-    # lineal PER beta -> 1.0 a lo largo de TOTAL_STEPS
     t = min(1.0, float(step) / float(TOTAL_STEPS))
     return PER_BETA_START + t * (PER_BETA_END - PER_BETA_START)
 
@@ -129,7 +125,7 @@ def main():
 
     seeds = [SEED + i for i in range(NUM_ENVS)]
     obs, _ = env.reset(seed=seeds)
-    state = to_uint8_stack(obs)  # (B,4,84,84) uint8/torch (como vuestro DQN) :contentReference[oaicite:3]{index=3}
+    state = to_uint8_stack(obs)
 
     # stats
     episode_rewards = np.zeros(NUM_ENVS, dtype=np.float32)
@@ -144,9 +140,8 @@ def main():
     global_step = 0
 
     for step in tqdm(range(TOTAL_STEPS), desc="train_steps(rainbow)"):
-        # ---------------------------------------------------------
+        
         # ACT (Noisy -> greedy; warmup random al principio)
-        # ---------------------------------------------------------
         actions = np.empty((NUM_ENVS,), dtype=np.int64)
 
         if step < START_TRAINING:
@@ -155,15 +150,15 @@ def main():
             with torch.no_grad():
                 q_net.train()
                 q_net.reset_noise()
-                s = state.to(DEVICE, non_blocking=True).float().div_(255.0)  # (B,4,84,84)
+                s = state.to(DEVICE, non_blocking=True).float().div_(255.0)
                 q_vals = q_net.get_q_values(s)  # (B,A)
                 actions[:] = q_vals.argmax(dim=1).cpu().numpy().astype(np.int64)
 
         next_obs, rewards, terminated, truncated, infos = env.step(actions)
         episode_done = np.logical_or(terminated, truncated)
-        done_boot = terminated  # consistente con vuestro DQN :contentReference[oaicite:4]{index=4}
+        done_boot = terminated
 
-        # logs reward shaping (si existen en infos)
+        # logs reward shaping
         writer.add_scalar("rewards/base", float(np.mean(infos.get("debug/base", np.nan))), step)
         writer.add_scalar("rewards/speed_bonus", float(np.mean(infos.get("debug/speed_bonus", np.nan))), step)
         writer.add_scalar("rewards/height_pen", float(np.mean(infos.get("debug/height_pen", np.nan))), step)
@@ -175,9 +170,7 @@ def main():
 
         next_state = to_uint8_stack(next_obs)
 
-        # ---------------------------------------------------------
         # PUSH en n-step -> PER
-        # ---------------------------------------------------------
         for i in range(NUM_ENVS):
             outs = nstep.add(
                 env_id=i,
@@ -185,16 +178,15 @@ def main():
                 action=int(actions[i]),
                 reward=float(rewards[i]),
                 next_state=next_state[i].cpu(),
-                done=bool(done_boot[i]),  # ojo: aquí usas done_boot como en tu clase actual
+                done=bool(done_boot[i]),
             )
             for (s0, a0, Rn, sn, dn) in outs:
                 buffer.push(s0, a0, Rn, sn, float(dn))
 
         state = next_state
 
-        # ---------------------------------------------------------
-        # EPISODE LOG + reset vector envs (como vuestro flujo)
-        # ---------------------------------------------------------
+
+        # EPISODE LOG + reset vector envs
         if episode_done.any():
             done_idx = np.where(episode_done)[0]
             for i in done_idx:
@@ -207,51 +199,48 @@ def main():
             obs, _ = env.reset(seed=seeds)
             state = to_uint8_stack(obs)
 
-        # ---------------------------------------------------------
+        
         # UPDATE (PER + Double + C51 + n-step + Noisy)
-        # ---------------------------------------------------------
         if len(buffer) > START_TRAINING:
             beta = beta_schedule(step)
 
-            # tu buffer devuelve: s,a,r,ns,d,weights,idxs
+            # buffer devuelve: s, a, r, ns, d, weights, idxs
             states_b, actions_t, rewards_t, next_states_b, dones_t, weights, idxs = buffer.sample(BATCH_SIZE, beta=beta)
 
             # logits/probs online para (s,a) actuales
             q_net.reset_noise()
-            logits = q_net(states_b, return_probs=False)  # (B,A,N)
-            log_probs = F.log_softmax(logits, dim=-1).clamp(min=-30.0)  # estabilidad
+            logits = q_net(states_b, return_probs=False) 
+            # para estabilidad
+            log_probs = F.log_softmax(logits, dim=-1).clamp(min=-30.0)
 
             # seleccionar acción del batch
             act_idx = actions_t.view(-1, 1, 1).expand(-1, 1, N_ATOMS)
-            log_probs_sa = log_probs.gather(1, act_idx).squeeze(1)  # (B,N)
+            log_probs_sa = log_probs.gather(1, act_idx).squeeze(1)
 
             with torch.no_grad():
                 # Double DQN para C51:
                 # a* = argmax_a E[Z] usando online
-                # q_net.reset_noise() # a ver si así se arregla el inplace
-                next_q_online = q_net.get_q_values(next_states_b)  # (B,A)
-                a_star = next_q_online.argmax(dim=1)              # (B,)
+                next_q_online = q_net.get_q_values(next_states_b)
+                a_star = next_q_online.argmax(dim=1) 
 
-                # next_dist = target(s',a*) (B,N)
                 target_net.reset_noise()
-                next_probs_all = target_net(next_states_b, return_probs=True)  # (B,A,N)
-                next_dist = next_probs_all[torch.arange(BATCH_SIZE, device=DEVICE), a_star]  # (B,N)
+                next_probs_all = target_net(next_states_b, return_probs=True)
+                next_dist = next_probs_all[torch.arange(BATCH_SIZE, device=DEVICE), a_star] 
 
                 # proyección C51 -> target_dist (B,N)
-                # Tu projection_distribution espera (B,A,N), así que le pasamos (B,1,N)
                 target_dist = projection_distribution(
                     next_dist=next_dist.unsqueeze(1),
                     rewards=rewards_t,
                     dones=dones_t,
                     gamma=GAMMA,
                     n_step=N_STEP,
-                    support=q_net.support,  # buffer (N,)
+                    support=q_net.support,
                     v_min=V_MIN,
                     v_max=V_MAX
-                )  # (B,N)
+                )
 
             # loss cross-entropy: - sum target * log p
-            per_sample_loss = -(target_dist * log_probs_sa).sum(dim=1)  # (B,)
+            per_sample_loss = -(target_dist * log_probs_sa).sum(dim=1)
             loss = (weights * per_sample_loss).mean()
 
             optimizer.zero_grad()
@@ -274,15 +263,11 @@ def main():
                 writer.add_scalar("updates_done", updates_done, step)
                 writer.add_scalar("buffer_size", len(buffer), step)
 
-        # ---------------------------------------------------------
         # TARGET UPDATE
-        # ---------------------------------------------------------
         if step % target_update_steps == 0:
             target_net.load_state_dict(q_net.state_dict())
 
-        # ---------------------------------------------------------
         # CHECKPOINT + EVAL
-        # ---------------------------------------------------------
         if (step % CHECKPOINT_EVERY == 0 and step > 0) or (step >= TOTAL_STEPS - 1):
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/rainbow_walker2d_step{step}.pt")
 

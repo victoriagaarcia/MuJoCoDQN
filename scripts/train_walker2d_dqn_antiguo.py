@@ -14,9 +14,7 @@ from src.envs_antiguo import (
 
 from datetime import datetime
 
-
 # Hiperparámetros
-
 ENV_ID = "Walker2d-v5"
 TOTAL_STEPS = 10_000_000
 BUFFER_SIZE = 200_000
@@ -41,7 +39,6 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S") 
 
 def epsilon(step):
-   # return max(EPS_END, EPS_START - (step  / EPS_DECAY))
     if step < EPS_DECAY:
        return max(EPS_END1, EPS_START - (max(0, step - START_DECAY) / EPS_DECAY))
     elif step < 2 * EPS_DECAY:
@@ -98,36 +95,40 @@ def main():
     buffer = ReplayBuffer(BUFFER_SIZE)
 
     seeds = [SEED + i for i in range(NUM_ENVS)] 
-    state, _ = env.reset(seed=seeds) # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
-    # episode_reward = 0.0
-    # n_episodes = 0
+    # Reiniciamos el entorno y obtenemos el estado inicial (stack de frames)
+    state, _ = env.reset(seed=seeds) 
 
     episode_rewards = np.zeros(NUM_ENVS, dtype=np.float32)
     n_episodes = 0
-    avg_test_reward = np.nan  # para que exista incluso si no llegas a guardar checkpoint
+    # para que exista incluso si no llegas a guardar checkpoint
+    avg_test_reward = np.nan  
 
-    # Escala target update por NUM_ENVS (en términos de transiciones reales)
+    # Escala target update por NUM_ENVS
     target_update_steps = max(1, TARGET_UPDATE // NUM_ENVS)
     
     for step in tqdm(range(TOTAL_STEPS)):
-        eps = epsilon(step) # Calculamos el valor de epsilon para esta etapa del entrenamiento (decay lineal)
-        # eps = 0.05
-        # acciones aleatorias por entorno (vector)
+        eps = epsilon(step) 
+        
+        # acciones aleatorias por entorno
         actions = np.empty((NUM_ENVS,), dtype=np.int64)
-        rand_mask = np.random.rand(NUM_ENVS) < eps # Máscara booleana para decidir qué entornos toman acción aleatoria
+        # Máscara booleana para decidir qué entornos toman acción aleatoria
+        rand_mask = np.random.rand(NUM_ENVS) < eps 
         
         n_rand = int(rand_mask.sum())
         if n_rand > 0:
+            # Acción aleatoria para los entornos seleccionados por la máscara
             actions[rand_mask] = np.array(
                 [env.single_action_space.sample() for _ in range(n_rand)],
                 dtype=np.int64
-            ) # Acción aleatoria para los entornos seleccionados por la máscara
+            )
         
         # Decisión exploración vs explotación según epsilon-greedy
-        if (~rand_mask).any(): # Si hay algún entorno que no toma acción aleatoria, calculamos la acción con la red Q para esos entornos
+        # Si hay algún entorno que no toma acción aleatoria, calculamos la acción con la red Q para esos entornos
+        if (~rand_mask).any(): 
             with torch.no_grad():
                 s = torch.tensor(state[~rand_mask], dtype=torch.float32).to(DEVICE)
-                greedy = q_net(s).argmax(dim=1).cpu().numpy() # Acciones con mayor valor Q según la red online para los entornos que no toman acción aleatoria
+                # Acciones con mayor valor Q según la red online para los entornos que no toman acción aleatoria
+                greedy = q_net(s).argmax(dim=1).cpu().numpy() 
             actions[~rand_mask] = greedy
         
         # Ejecutamos la acción en el entorno y obtenemos la siguiente transición (s, a, r, s', done)
@@ -142,30 +143,25 @@ def main():
                 next_state[i],
                 bool(done[i])
             )
-        
-        # # Guardamos la transición en el replay buffer
-        # buffer.push(state, actions, reward, next_state, done)
-        
-        # # Actualizamos el estado actual al siguiente estado
-        # state = next_state
-        # # Acumulamos la recompensa del episodio actual
-        # episode_rewards += reward
-        
-        episode_rewards += reward.astype(np.float32) # Acumulamos la recompensa del episodio actual para cada entorno
 
-        if done.any(): # Si el episodio ha terminado, registramos la recompensa total del episodio en TensorBoard y reiniciamos el entorno
+        # Acumulamos la recompensa del episodio actual para cada entorno
+        episode_rewards += reward.astype(np.float32) #
+
+        if done.any(): 
             done_ids = np.where(done)[0]
             for i in done_ids:
-                writer.add_scalar("episode_reward", float(episode_rewards[i]), step) # Registramos la recompensa total del episodio en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+                # Registramos la recompensa total del episodio en TensorBoard
+                writer.add_scalar("episode_reward", float(episode_rewards[i]), step) 
                 episode_rewards[i] = 0.0
                 n_episodes += 1
             
             state, _ = env.reset(seed=seeds)
         else:
-            state = next_state # Actualizamos el estado actual al siguiente estado para la próxima iteración
+            # Actualizamos el estado actual al siguiente estado para la próxima iteración
+            state = next_state 
 
-
-        if len(buffer) > START_TRAINING: # Empezamos a entrenar la red Q solo después de haber llenado el buffer con suficientes experiencias iniciales
+        # Empezamos a entrenar la red Q solo después de haber llenado el buffer con suficientes experiencias iniciales
+        if len(buffer) > START_TRAINING: 
             # Muestreamos un batch aleatorio de transiciones del buffer para entrenar la red Q
             states, actions, rewards, next_states, dones = buffer.sample(BATCH_SIZE)
 
@@ -180,38 +176,43 @@ def main():
 
             with torch.no_grad():
                 max_next_q = target_net(next_states).max(1)[0]
-                target = rewards + GAMMA * max_next_q * (1 - dones) # Objetivo de entrenamiento: r + gamma * max_a' Q_target(s', a') si no es terminal, solo r si es terminal
+                # Objetivo de entrenamiento: r + gamma * max_a' Q_target(s', a') si no es terminal, solo r si es terminal
+                target = rewards + GAMMA * max_next_q * (1 - dones) 
 
-            loss = torch.nn.functional.mse_loss(q_values, target) # Calculamos la pérdida como el error cuadrático medio entre los valores Q actuales y los objetivos de entrenamiento
+            # Calculamos la pérdida como el error cuadrático medio entre los valores Q actuales y los objetivos de entrenamiento
+            loss = torch.nn.functional.mse_loss(q_values, target) 
 
             optimizer.zero_grad()
             loss.backward()
             
-            torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0) # Clipping de gradientes para evitar explosión de gradientes
+            # Clipping de gradientes para evitar explosión de gradientes
+            torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0) 
             optimizer.step()
 
-            writer.add_scalar("loss", loss.item(), step) # Registramos la pérdida en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
-            writer.add_scalar("epsilon", eps, step) # Registramos el valor de epsilon en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+            # Registramos la pérdida en TensorBoard
+            writer.add_scalar("loss", loss.item(), step) 
+             # Registramos el valor de epsilon en TensorBoard
+            writer.add_scalar("epsilon", eps, step)
             
-
-        if step % target_update_steps == 0: # Cada cierto número de pasos, actualizamos la red objetivo copiando los pesos de la red online
+        # Cada cierto número de pasos, actualizamos la red objetivo copiando los pesos de la red online
+        if step % target_update_steps == 0:
             target_net.load_state_dict(q_net.state_dict())
         
         # Guardar checkpoints periódicos del modelo entrenado cada 100k pasos
         if step % 250_000 == 0 and step > 0 or step == TOTAL_STEPS - 1:
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/dqn_walker2d_step{step}.pt")
-            # Hacemos un pequeño test de evaluación del modelo guardado para verificar que se ha guardado correctamente (con 10 episodios de prueba)
+
             q_net.eval()
             test_rewards = []
             
             eval_env = gym.make(ENV_ID, render_mode="rgb_array")
             eval_env = DiscreteActionWrapper(eval_env)
-            eval_env = ProgressWithSafetyShapingNew(eval_env)
-            # eval_env = ProgressWithSafetyShaping(eval_env)
+            eval_env = ProgressWithSafetyShaping(eval_env)
             eval_env = PixelStackWrapper(eval_env)
 
             for ep in tqdm(range(10)):
-                test_state, _ = eval_env.reset(seed=SEED + 10_000 + ep) # Semilla diferente para el test de evaluación para mayor diversidad
+                # Semilla diferente para el test de evaluación para mayor diversidad
+                test_state, _ = eval_env.reset(seed=SEED + 10_000 + ep) 
                 test_episode_reward = 0.0
                 while True:
                     with torch.no_grad():
@@ -224,7 +225,8 @@ def main():
                 test_rewards.append(test_episode_reward)
             avg_test_reward = np.mean(test_rewards)
             print(f"Checkpoint saved at step {step}, average test reward over 10 episodes: {avg_test_reward}")
-            writer.add_scalar("avg_test_reward", avg_test_reward, step) # Registramos la recompensa media del test de evaluación en TensorBoard (ajustamos el paso para que coincida con el número total de pasos incluyendo los 3M iniciales)
+            # Registramos la recompensa media del test de evaluación en TensorBoard
+            writer.add_scalar("avg_test_reward", avg_test_reward, step)
             q_net.train() # Volvemos a poner la red en modo entrenamiento después del test de evaluación
     
     
@@ -241,7 +243,8 @@ def main():
         "target_update": TARGET_UPDATE,
         "start_training": START_TRAINING,
         "eps_start": EPS_START,
-        "eps_end": EPS_END,
+        "eps_end1": EPS_END1,
+        "eps_end2": EPS_END2,
         "eps_decay": EPS_DECAY,
 
         # métricas resumen
