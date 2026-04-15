@@ -10,7 +10,7 @@ import gymnasium as gym
 import torch
 import os
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper

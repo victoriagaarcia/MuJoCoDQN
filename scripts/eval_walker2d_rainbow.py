@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import os
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper

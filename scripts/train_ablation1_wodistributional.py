@@ -24,7 +24,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper,

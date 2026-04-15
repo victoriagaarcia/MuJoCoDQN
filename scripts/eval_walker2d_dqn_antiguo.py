@@ -3,8 +3,8 @@ import torch
 import numpy as np
 import os
 
-from src.dqn_antiguo import QNetwork
-from src.envs_antiguo import (
+from src.dqn import QNetwork
+from src.envs import (
     DiscreteActionWrapper, 
     ProgressWithSafetyShaping,
     PixelStackWrapper)

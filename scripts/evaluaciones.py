@@ -15,7 +15,7 @@ from tqdm import tqdm
 # from src.dqn_antiguo import QNetwork
 from src.rainbow import RainbowDQN as QNetwork
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper,
