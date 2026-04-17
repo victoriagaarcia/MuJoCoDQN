@@ -10,7 +10,7 @@ import gymnasium as gym
 import torch
 import os
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper
@@ -20,26 +20,21 @@ from src.rainbow import RainbowDQN
 from .utils import to_uint8_stack
 
 
-# -----------------------------
-# Configuración
-# -----------------------------
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Mar12_18_29_22"   # ajusta
-CHECKPOINT_STEP = 4_800_000                     # ajusta si quieres
+MODEL_DATE = "Mar12_18_29_22"
+CHECKPOINT_STEP = 4_800_000
 
-# MODEL_PATH = f"runs/{MODEL_DATE}/ablation2_woper_walker2d_step{CHECKPOINT_STEP}.pt"
-MODEL_PATH = f"runs/{MODEL_DATE}/ablation2_woper_walker2d.pt"  # carpeta separada para videos de evaluación
+MODEL_PATH = f"runs/{MODEL_DATE}/ablation2_woper_walker2d.pt"
 VIDEO_DIR = f"runs/{MODEL_DATE}/"
 N_EPISODES = 5
 
-# C51 params: deben coincidir con training
+# Debe coincidir con los parametros de entrenamiento C51.
 N_ATOMS = 51
 V_MIN = -80.0
 V_MAX = 500.0
 
-# Noisy init
 SIGMA_INIT = 0.017
 
 os.makedirs(VIDEO_DIR, exist_ok=True)

@@ -1,8 +1,8 @@
 import gymnasium as gym
 import torch
 import time
-from src.dqn import QNetwork
-from src.envs import PixelStackWrapper, DiscreteActionWrapper
+from src.dqn_malo import QNetwork
+from src.envs_malo import PixelStackWrapper, DiscreteActionWrapper
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 ENV_ID = "Walker2d-v5"

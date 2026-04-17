@@ -27,7 +27,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper,
@@ -44,9 +44,6 @@ from .utils import (
     to_uint8_stack,
 )
 
-# -----------------------------
-# Hiperpar�metros
-# -----------------------------
 ENV_ID = "Walker2d-v5"
 
 TOTAL_STEPS = 5_000_000
@@ -58,15 +55,12 @@ LR = 1e-4
 TARGET_UPDATE = 40_000
 START_TRAINING = 50_000
 
-# Rainbow extras (mantenemos n-step)
 N_STEP = 3
 
-# C51
 N_ATOMS = 51
 V_MIN = -80.0
 V_MAX = 500.0
 
-# Noisy
 SIGMA_INIT = 0.017
 
 SEED = 42
@@ -80,14 +74,10 @@ MODEL_DIR = "runs/" + datetime.now().strftime("%b%d_%H_%M_%S")
 EXPERIMENT_XLSX = "runs/experiments.xlsx"
 
 
-# =========================================================
-# Uniform Replay Buffer (SIN PER)
-# =========================================================
 class UniformReplayBuffer:
     """
-    Replay buffer uniforme para reemplazar PER en la ablaci�n 2.
-    Guarda transiciones ya procesadas con n-step:
-      (state, action, reward_n, next_state, done)
+    Replay buffer uniforme para reemplazar PER.
+    Guarda transiciones n-step: (state, action, reward_n, next_state, done).
     """
     def __init__(self, capacity: int, device: str, obs_shape=(4, 84, 84)):
         self.capacity = int(capacity)
@@ -152,7 +142,6 @@ def main():
     env = AsyncVectorEnv([make_env(i) for i in range(NUM_ENVS)])
     n_actions = env.single_action_space.n
 
-    # Online y target (C51 + Dueling + Noisy) -> igual que Rainbow original
     q_net = RainbowDQN(
         num_actions=n_actions,
         n_atoms=N_ATOMS,
@@ -173,22 +162,19 @@ def main():
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
 
-    # CAMBIO respecto a Rainbow original:
-    # buffer uniforme en lugar de PrioritizedReplayBuffer
+    # Buffer uniforme en lugar de PER.
     buffer = UniformReplayBuffer(
         capacity=BUFFER_SIZE,
         device=DEVICE,
         obs_shape=(4, 84, 84),
     )
 
-    # mantenemos n-step exactamente igual
     nstep = NStepAccumulator(n=N_STEP, gamma=GAMMA, n_envs=NUM_ENVS)
 
     seeds = [SEED + i for i in range(NUM_ENVS)]
     obs, _ = env.reset(seed=seeds)
-    state = to_uint8_stack(obs)  # (B,4,84,84) uint8
+    state = to_uint8_stack(obs)
 
-    # stats
     episode_rewards = np.zeros(NUM_ENVS, dtype=np.float32)
     episode_lengths = np.zeros(NUM_ENVS, dtype=np.int32)
     n_episodes = 0
@@ -198,10 +184,7 @@ def main():
     target_update_steps = max(1, TARGET_UPDATE // NUM_ENVS)
 
     for step in tqdm(range(TOTAL_STEPS), desc="train_steps(ablation2_without_per)"):
-        # ---------------------------------------------------------
-        # ACT (Noisy -> greedy; warmup random al principio)
-        # Igual que en Rainbow original
-        # ---------------------------------------------------------
+        # Warmup aleatorio; luego greedy sobre NoisyNet.
         actions = np.empty((NUM_ENVS,), dtype=np.int64)
 
         if step < START_TRAINING:
@@ -232,9 +215,7 @@ def main():
 
         next_state = to_uint8_stack(next_obs)
 
-        # ---------------------------------------------------------
-        # PUSH en n-step -> uniform replay
-        # ---------------------------------------------------------
+        # Acumula n-step y escribe en replay uniforme.
         for i in range(NUM_ENVS):
             outs = nstep.add(
                 env_id=i,
@@ -249,9 +230,6 @@ def main():
 
         state = next_state
 
-        # ---------------------------------------------------------
-        # EPISODE LOG + reset vector envs
-        # ---------------------------------------------------------
         if episode_done.any():
             done_idx = np.where(episode_done)[0]
             for i in done_idx:
@@ -264,43 +242,25 @@ def main():
             obs, _ = env.reset(seed=seeds)
             state = to_uint8_stack(obs)
 
-        # ---------------------------------------------------------
-        # UPDATE
-        # Manteniendo:
-        # - C51
-        # - Double DQN
-        # - n-step
-        # - Noisy
-        # - Dueling
-        #
-        # CAMBIO respecto a Rainbow original:
-        # - sample uniforme
-        # - sin weights PER
-        # - sin update_priorities
-        # ---------------------------------------------------------
+        # Update C51 + Double DQN con sample uniforme (sin PER).
         if len(buffer) > START_TRAINING:
             states_b, actions_t, rewards_t, next_states_b, dones_t = buffer.sample(BATCH_SIZE)
 
-            # distribuci�n online en s
             q_net.reset_noise()
-            # log_probs_all = q_net(states_b, return_probs=True)  # (B,A,N)
-            # log_probs_sa = log_probs_all[torch.arange(BATCH_SIZE, device=DEVICE), actions_t]  # (B,N)
-            logits_all = q_net(states_b, return_probs=False)          # (B,A,N)
-            log_probs_all = torch.log_softmax(logits_all, dim=-1)     # (B,A,N)
-            log_probs_sa = log_probs_all[torch.arange(BATCH_SIZE, device=DEVICE), actions_t]  # (B,N)
+            logits_all = q_net(states_b, return_probs=False)
+            log_probs_all = torch.log_softmax(logits_all, dim=-1)
+            log_probs_sa = log_probs_all[torch.arange(BATCH_SIZE, device=DEVICE), actions_t]
             
             with torch.no_grad():
-                # Double DQN:
-                # acci�n seleccionada con online usando Q esperados
+                # Double DQN: la accion se selecciona con la online.
                 next_q_online = q_net.get_q_values(next_states_b)
-                a_star = next_q_online.argmax(dim=1)  # (B,)
+                a_star = next_q_online.argmax(dim=1)
 
-                # distribuci�n target(s', a*)
                 target_net.reset_noise()
-                next_probs_all = target_net(next_states_b, return_probs=True)  # (B,A,N)
-                next_dist = next_probs_all[torch.arange(BATCH_SIZE, device=DEVICE), a_star]  # (B,N)
+                next_probs_all = target_net(next_states_b, return_probs=True)
+                next_dist = next_probs_all[torch.arange(BATCH_SIZE, device=DEVICE), a_star]
 
-                # proyecci�n C51 -> target_dist
+                # Proyeccion C51.
                 target_dist = projection_distribution(
                     next_dist=next_dist.unsqueeze(1),
                     rewards=rewards_t,
@@ -310,12 +270,11 @@ def main():
                     support=q_net.support,
                     v_min=V_MIN,
                     v_max=V_MAX
-                )  # (B,N)
+                )
 
-            # cross-entropy por muestra
-            per_sample_loss = -(target_dist * log_probs_sa).sum(dim=1)  # (B,)
+            per_sample_loss = -(target_dist * log_probs_sa).sum(dim=1)
 
-            # CAMBIO clave: media simple, porque ya no hay IS weights de PER
+            # Media simple: no hay IS weights de PER.
             loss = per_sample_loss.mean()
 
             optimizer.zero_grad()
@@ -331,15 +290,9 @@ def main():
                 writer.add_scalar("updates_done", updates_done, step)
                 writer.add_scalar("buffer_size", len(buffer), step)
 
-        # ---------------------------------------------------------
-        # TARGET UPDATE
-        # ---------------------------------------------------------
         if step % target_update_steps == 0:
             target_net.load_state_dict(q_net.state_dict())
 
-        # ---------------------------------------------------------
-        # CHECKPOINT + EVAL
-        # ---------------------------------------------------------
         if (step % CHECKPOINT_EVERY == 0 and step > 0) or (step >= TOTAL_STEPS - 1):
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/ablation2_woper_walker2d_step{step}.pt")
 

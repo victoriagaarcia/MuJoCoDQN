@@ -15,13 +15,11 @@ from tqdm import tqdm
 # from src.dqn_antiguo import QNetwork
 from src.rainbow import RainbowDQN as QNetwork
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper,
 )
-
-# Intentamos usar el mismo wrapper de evaluaci�n que aparece en tu train
 
 ProgressWithSafetyShapingNew = None
 HAS_NEW_SHAPING = False
@@ -81,7 +79,6 @@ def evaluate_checkpoint(
         ep_return = 0.0
         ep_len = 0
 
-        # Acumulamos t�rminos de reward si el wrapper los deja en info
         base_sum = 0.0
         speed_bonus_sum = 0.0
         height_pen_sum = 0.0
@@ -92,7 +89,7 @@ def evaluate_checkpoint(
             with torch.no_grad():
                 s = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
                 # action = q_net(s).argmax(dim=1).item()
-                q_values = q_net.get_q_values(s) # Esto calcula sum(probs * support)
+                q_values = q_net.get_q_values(s)
                 action = q_values.argmax(dim=1).item()
 
             state, reward, terminated, truncated, info = env.step(action)
@@ -107,7 +104,7 @@ def evaluate_checkpoint(
             angle_pen_sum += float(info.get("debug/angle_pen", 0.0))
             alive_bonus_sum += float(info.get("debug/alive_bonus", 0.0))
 
-        # Estado final f�sico del torso
+        # Estado final fisico del torso
         data = env.unwrapped.data
         final_z = float(data.qpos[1])
         final_angle = float(data.qpos[2])
@@ -137,7 +134,7 @@ def evaluate_checkpoint(
         summary[f"{key}_mean"] = mean
         summary[f"{key}_std"] = std
 
-    # Guardamos tambi�n distribuciones brutas �tiles para histogramas
+    # Guardamos tambien distribuciones brutas utiles para histogramas
     summary["_raw_returns"] = np.asarray(metrics["return"], dtype=np.float32)
     summary["_raw_lengths"] = np.asarray(metrics["episode_length"], dtype=np.float32)
 
@@ -152,9 +149,9 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--every", type=int, default=1,
-                        help="Eval�a 1 de cada N checkpoints (�til si hay muchos)")
+                        help="Evalua 1 de cada N checkpoints (util si hay muchos)")
     parser.add_argument("--limit", type=int, default=0,
-                        help="M�ximo n�mero de checkpoints a evaluar; 0 = todos")
+                        help="Maximo numero de checkpoints a evaluar; 0 = todos")
     parser.add_argument("--use_old_shaping", action="store_true",
                         help="Fuerza ProgressWithSafetyShaping en lugar de ProgressWithSafetyShapingNew")
     args = parser.parse_args()
@@ -163,7 +160,6 @@ def main():
     assert run_dir.exists(), f"No existe el directorio: {run_dir}"
 
     ckpts = sorted(
-        # run_dir.glob("dqn_walker2d_step*.pt"),
         run_dir.glob("rainbow_walker2d_step*.pt"),
         key=extract_step
     )
@@ -227,7 +223,7 @@ def main():
         writer.add_scalar("eval_reward_terms/angle_pen_sum_mean", summary["angle_pen_sum_mean"], step)
         writer.add_scalar("eval_reward_terms/alive_bonus_sum_mean", summary["alive_bonus_sum_mean"], step)
 
-        # Histogramas �tiles
+        # Histogramas utiles
         writer.add_histogram("eval_distributions/returns", summary["_raw_returns"], step)
         writer.add_histogram("eval_distributions/episode_lengths", summary["_raw_lengths"], step)
 

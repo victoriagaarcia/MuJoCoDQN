@@ -24,7 +24,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.vector import AsyncVectorEnv
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper,
@@ -33,18 +33,14 @@ from src.envs_antiguo import (
 from src.rainbow import (
     PrioritizedReplayBuffer,
     NStepAccumulator,
-    NoisyandDuelingDQN,   # <-- red no distribucional
+    NoisyandDuelingDQN,
 )
 
 from .utils import (
-    should_update_target,
     save_experiment_to_excel,
     to_uint8_stack,
 )
 
-# -----------------------------
-# Hiperpar�metros
-# -----------------------------
 ENV_ID = "Walker2d-v5"
 
 TOTAL_STEPS = 15_000_000
@@ -56,13 +52,11 @@ LR = 1e-4
 TARGET_UPDATE = 40_000
 START_TRAINING = 50_000
 
-# Rainbow extras que sí mantenemos
 N_STEP = 3
 PER_ALPHA = 0.6
 PER_BETA_START = 0.4
 PER_BETA_END = 1.0
 
-# Noisy
 SIGMA_INIT = 0.017
 
 SEED = 42
@@ -87,7 +81,7 @@ def make_env(rank: int):
 
 
 def beta_schedule(step: int) -> float:
-    # lineal PER beta -> 1.0 a lo largo de TOTAL_STEPS
+    # Anneal lineal de beta para PER hasta 1.0.
     t = min(1.0, float(step) / float(TOTAL_STEPS))
     return PER_BETA_START + t * (PER_BETA_END - PER_BETA_START)
 
@@ -103,11 +97,7 @@ def main():
     env = AsyncVectorEnv([make_env(i) for i in range(NUM_ENVS)])
     n_actions = env.single_action_space.n
 
-    # ---------------------------------------------------------
-    # CAMBIO RESPECTO A RAINBOW ORIGINAL:
-    # usamos red no distribucional (Q escalar) pero mantenemos
-    # Noisy + Dueling
-    # ---------------------------------------------------------
+    # Red no distribucional (Q escalar) con Noisy + Dueling.
     q_net = NoisyandDuelingDQN(
         num_actions=n_actions,
         sigma_init=SIGMA_INIT
@@ -122,7 +112,7 @@ def main():
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=LR)
 
-    # PER buffer + n-step accumulator (igual que Rainbow original)
+    # Se mantienen PER y n-step.
     buffer = PrioritizedReplayBuffer(
         capacity=BUFFER_SIZE,
         device=DEVICE,
@@ -136,23 +126,18 @@ def main():
     obs, _ = env.reset(seed=seeds)
     state = to_uint8_stack(obs)
 
-    # stats
     episode_rewards = np.zeros(NUM_ENVS, dtype=np.float32)
     episode_lengths = np.zeros(NUM_ENVS, dtype=np.int32)
     n_episodes = 0
     updates_done = 0
     avg_test_reward = np.nan
 
-    # target update en unidades "steps del loop"
     target_update_steps = max(1, TARGET_UPDATE // NUM_ENVS)
 
     global_step = 0
 
     for step in tqdm(range(TOTAL_STEPS), desc="train_steps(ablation1_no_distributional)"):
-        # ---------------------------------------------------------
-        # ACT (Noisy -> greedy; warmup random al principio)
-        # Igual que Rainbow original
-        # ---------------------------------------------------------
+        # Warmup aleatorio; luego greedy sobre NoisyNet.
         actions = np.empty((NUM_ENVS,), dtype=np.int64)
 
         if step < START_TRAINING:
@@ -165,14 +150,14 @@ def main():
                 q_net.train()
                 q_net.reset_noise()
                 s = state.to(DEVICE, non_blocking=True).float().div_(255.0)
-                q_vals = q_net(s)  # <-- CAMBIO: la red ya devuelve Q-values
+                q_vals = q_net(s)
                 actions[:] = q_vals.argmax(dim=1).cpu().numpy().astype(np.int64)
 
         next_obs, rewards, terminated, truncated, infos = env.step(actions)
         episode_done = np.logical_or(terminated, truncated)
-        done_boot = terminated  # mismo criterio que tu Rainbow original
+        done_boot = terminated
 
-        # logs reward shaping
+        # Métricas de reward shaping.
         writer.add_scalar("rewards/base", float(np.mean(infos.get("debug/base", np.nan))), step)
         writer.add_scalar("rewards/speed_bonus", float(np.mean(infos.get("debug/speed_bonus", np.nan))), step)
         writer.add_scalar("rewards/height_pen", float(np.mean(infos.get("debug/height_pen", np.nan))), step)
@@ -184,10 +169,7 @@ def main():
 
         next_state = to_uint8_stack(next_obs)
 
-        # ---------------------------------------------------------
-        # PUSH en n-step -> PER
-        # Igual que Rainbow original
-        # ---------------------------------------------------------
+        # Acumula n-step y escribe en PER.
         for i in range(NUM_ENVS):
             outs = nstep.add(
                 env_id=i,
@@ -202,10 +184,6 @@ def main():
 
         state = next_state
 
-        # ---------------------------------------------------------
-        # EPISODE LOG + reset vector envs
-        # Igual que Rainbow original
-        # ---------------------------------------------------------
         if episode_done.any():
             done_idx = np.where(episode_done)[0]
             for i in done_idx:
@@ -218,13 +196,7 @@ def main():
             obs, _ = env.reset(seed=seeds)
             state = to_uint8_stack(obs)
 
-        # ---------------------------------------------------------
-        # UPDATE
-        #
-        # CAMBIO CR�TICO respecto a Rainbow original:
-        # antes: C51 + projection_distribution + cross-entropy
-        # ahora: Double DQN escalar + n-step + PER
-        # ---------------------------------------------------------
+        # Update con Double DQN escalar + n-step + PER (sin C51).
         if len(buffer) > START_TRAINING:
             beta = beta_schedule(step)
 
@@ -233,27 +205,23 @@ def main():
                 beta=beta
             )
 
-            # Q(s,a) online
             q_net.reset_noise()
-            q_values = q_net(states_b)  # (B, A)
-            q_sa = q_values.gather(1, actions_t.unsqueeze(1)).squeeze(1)  # (B,)
+            q_values = q_net(states_b)
+            q_sa = q_values.gather(1, actions_t.unsqueeze(1)).squeeze(1)
 
             with torch.no_grad():
-                # Double DQN:
-                # a* = argmax_a Q_online(s', a)
-                # q_net.reset_noise()
-                next_q_online = q_net(next_states_b)  # (B, A)
-                a_star = next_q_online.argmax(dim=1, keepdim=True)  # (B,1)
+                # Double DQN: a* = argmax_a Q_online(s', a).
+                next_q_online = q_net(next_states_b)
+                a_star = next_q_online.argmax(dim=1, keepdim=True)
 
-                # Q_target(s', a*)
                 target_net.reset_noise()
-                next_q_target = target_net(next_states_b)  # (B, A)
-                next_q = next_q_target.gather(1, a_star).squeeze(1)  # (B,)
+                next_q_target = target_net(next_states_b)
+                next_q = next_q_target.gather(1, a_star).squeeze(1)
 
-                td_target = rewards_t + (GAMMA ** N_STEP) * (1.0 - dones_t) * next_q  # (B,)
+                td_target = rewards_t + (GAMMA ** N_STEP) * (1.0 - dones_t) * next_q
 
             td_error = td_target - q_sa
-            per_sample_loss = F.smooth_l1_loss(q_sa, td_target, reduction="none")  # (B,)
+            per_sample_loss = F.smooth_l1_loss(q_sa, td_target, reduction="none")
             loss = (weights * per_sample_loss).mean()
 
             optimizer.zero_grad()
@@ -261,7 +229,7 @@ def main():
             torch.nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
             optimizer.step()
 
-            # PER priorities: mejor usar |TD error|
+            # Actualiza prioridades PER con |TD error|.
             new_prios = td_error.detach().abs() + 1e-6
             buffer.update_priorities(idxs, new_prios)
 
@@ -278,17 +246,9 @@ def main():
                 writer.add_scalar("updates_done", updates_done, step)
                 writer.add_scalar("buffer_size", len(buffer), step)
 
-        # ---------------------------------------------------------
-        # TARGET UPDATE
-        # Igual que Rainbow original
-        # ---------------------------------------------------------
         if step % target_update_steps == 0:
             target_net.load_state_dict(q_net.state_dict())
 
-        # ---------------------------------------------------------
-        # CHECKPOINT + EVAL
-        # Igual estructura que Rainbow original
-        # ---------------------------------------------------------
         if (step % CHECKPOINT_EVERY == 0 and step > 0) or (step >= TOTAL_STEPS - 1):
             torch.save(q_net.state_dict(), f"{MODEL_DIR}/ablation1_walker2d_step{step}.pt")
 
@@ -332,7 +292,6 @@ def main():
 
         global_step += NUM_ENVS
 
-    # save final
     torch.save(q_net.state_dict(), f"{MODEL_DIR}/ablation1_walker2d.pt")
 
     row = {

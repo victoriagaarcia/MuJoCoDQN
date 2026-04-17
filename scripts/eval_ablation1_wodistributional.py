@@ -10,7 +10,7 @@ import gymnasium as gym
 import torch
 import os
 
-from src.envs_antiguo import (
+from src.envs import (
     DiscreteActionWrapper,
     ProgressWithSafetyShaping,
     PixelStackWrapper
@@ -20,14 +20,11 @@ from src.rainbow import NoisyandDuelingDQN
 from .utils import to_uint8_stack
 
 
-# -----------------------------
-# Configuraci�n
-# -----------------------------
 ENV_ID = "Walker2d-v5"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_DATE = "Mar12_00_18_12"   # ajusta
-CHECKPOINT_STEP = 2_100_000                                # ajusta si quieres
+MODEL_DATE = "Mar12_00_18_12"
+CHECKPOINT_STEP = 2_100_000
 
 MODEL_PATH = f"runs/{MODEL_DATE}/ablation1_walker2d_step{CHECKPOINT_STEP}.pt"
 VIDEO_DIR = f"runs/{MODEL_DATE}/"
@@ -47,10 +44,8 @@ def make_eval_env():
 
 
 def main():
-    # 1) Crear entorno base
     env = make_eval_env()
 
-    # 2) Envolver con RecordVideo
     env = gym.wrappers.RecordVideo(
         env,
         video_folder=VIDEO_DIR,
@@ -58,7 +53,6 @@ def main():
         name_prefix=f"ablation1_video_{CHECKPOINT_STEP}steps"
     )
 
-    # 3) Cargar modelo
     n_actions = env.action_space.n
 
     q_net = NoisyandDuelingDQN(
@@ -69,23 +63,21 @@ def main():
     q_net.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
     q_net.eval()
 
-    # Evaluaci�n determinista
     if hasattr(q_net, "disable_noise"):
         q_net.disable_noise()
 
-    # 4) Ejecutar episodios (pol�tica greedy)
     for ep in range(N_EPISODES):
         obs, _ = env.reset(seed=42 + 10_000 + ep)
-        state = to_uint8_stack(obs[None, ...])  # (1,4,84,84) uint8
+        state = to_uint8_stack(obs[None, ...])
 
         ep_return = 0.0
         step = 0
 
         while True:
-            s = state.to(DEVICE, non_blocking=True).float().div_(255.0)  # (1,4,84,84)
+            s = state.to(DEVICE, non_blocking=True).float().div_(255.0)
 
             with torch.no_grad():
-                q_vals = q_net(s)   # <-- CAMBIO: Q-values directos
+                q_vals = q_net(s)
                 action = int(q_vals.argmax(dim=1).item())
 
             next_obs, reward, terminated, truncated, info = env.step(action)
